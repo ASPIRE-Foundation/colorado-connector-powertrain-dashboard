@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+
+const pagesPrefix = "/colorado-connector-powertrain-dashboard";
 
 async function render() {
   return readFile(new URL("../dist/client/index.html", import.meta.url), "utf8");
@@ -36,4 +38,12 @@ test("renders the FRPR decision model", async () => {
   assert.doesNotMatch(html, /Battery \/ car/);
   assert.doesNotMatch(html, /type="number"/i);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
+
+  const deployedAssets = [
+    ...html.matchAll(/(?:href|src)="(\/colorado-connector-powertrain-dashboard\/_next\/[^"]+)"/g),
+  ].map((match) => match[1]);
+  assert.ok(deployedAssets.length > 0, "expected GitHub Pages-prefixed assets");
+  await Promise.all(deployedAssets.map((assetPath) =>
+    access(new URL(`../dist/client${assetPath.slice(pagesPrefix.length)}`, import.meta.url)),
+  ));
 });
