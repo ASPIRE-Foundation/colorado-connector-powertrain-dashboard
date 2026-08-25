@@ -139,6 +139,31 @@ input[type="range"] { width: 100%; accent-color: var(--pine); }
 .range-values span:last-child { text-align: right; }
 .range-values b { color: var(--ink); font-size: 0.59rem; font-weight: 700; white-space: nowrap; }
 
+.dashboard-intro {
+  border-radius: 16px;
+  background: rgba(255, 254, 250, 0.9);
+  box-shadow: 0 14px 42px rgba(21, 47, 38, 0.04);
+}
+.dashboard-intro > summary { min-height: 58px; padding: 16px 20px; color: var(--pine-dark); }
+.dashboard-intro > summary > span:first-child { font-size: 0.9rem; }
+.dashboard-intro-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(380px, 1.25fr);
+  gap: 24px 34px;
+  padding: 28px 28px 24px;
+  border-top: 1px solid var(--line);
+  background: white;
+}
+.dashboard-intro-purpose h2 { max-width: 540px; font-size: 1.5rem; line-height: 1.08; letter-spacing: -0.04em; }
+.dashboard-intro-purpose > p:last-child { margin-top: 13px; color: var(--muted); font-size: 0.76rem; line-height: 1.55; }
+.dashboard-intro-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; margin: 0; padding: 0; list-style: none; counter-reset: intro-step; }
+.dashboard-intro-steps li { position: relative; display: grid; gap: 4px; padding-left: 30px; counter-increment: intro-step; }
+.dashboard-intro-steps li::before { content: counter(intro-step); position: absolute; top: 0; left: 0; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #e2eee9; color: var(--pine-dark); font-size: 0.62rem; font-weight: 780; }
+.dashboard-intro-steps strong { font-size: 0.72rem; }
+.dashboard-intro-steps span { color: var(--muted); font-size: 0.67rem; line-height: 1.45; }
+.dashboard-intro-boundary { grid-column: 1 / -1; padding-top: 16px; border-top: 1px solid #e8ebe9; color: var(--muted); font-size: 0.68rem; line-height: 1.5; }
+.dashboard-intro-boundary strong { color: #44504b; }
+
 .executive-summary {
   display: grid;
   grid-template-columns: 1fr;
@@ -343,6 +368,9 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 12px
   .site-header { min-height: 78px; }
   .status-pill { font-size: 0; padding: 9px; }
   .executive-summary { min-height: 0; padding: 34px 2px; }
+  .dashboard-intro-body { grid-template-columns: 1fr; padding: 22px 18px 20px; }
+  .dashboard-intro-steps { grid-template-columns: 1fr; }
+  .dashboard-intro-purpose h2 { font-size: 1.35rem; }
   .summary-metrics { grid-template-columns: 1fr; }
   .comparison, .range-chart, .capacity-pane, .assumptions-section { padding: 22px 16px; border-radius: 14px; }
   .technology-row, .technology-row.winner { grid-template-columns: 1fr; gap: 15px; margin: 0; padding: 20px 10px; }

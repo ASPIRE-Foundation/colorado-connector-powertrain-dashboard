@@ -12,6 +12,10 @@ test("renders the FRPR decision model", async () => {
   const html = await render();
   assert.match(html, /<title>Colorado Connector Powertrain Dashboard<\/title>/i);
   assert.match(html, /Powertrain decision model/);
+  assert.match(html, /About this dashboard/);
+  assert.match(html, /Purpose \+ how to use/);
+  assert.match(html, /Test uncertainty/);
+  assert.match(html, /Model boundary:/);
   assert.match(html, /Equivalent annual lifecycle cost/);
   assert.match(html, /Illustrative assumptions/);
   assert.match(html, /Diesel locomotive/);

@@ -469,6 +469,33 @@ export default function Home() {
       <div className="dashboard-shell">
         <div className="dashboard-content">
 
+      <details className="dashboard-intro" open>
+        <summary>
+          <span>About this dashboard</span>
+          <span>Purpose + how to use</span>
+        </summary>
+        <div className="dashboard-intro-body">
+          <div className="dashboard-intro-purpose">
+            <p className="eyebrow">Purpose</p>
+            <h2>Explore how service and technology assumptions change lifecycle cost.</h2>
+            <p>
+              This planning-level screening tool compares diesel locomotive, battery electric,
+              catenary electric, and hydrogen fuel-cell options on a common equivalent-annual basis.
+            </p>
+          </div>
+          <ol className="dashboard-intro-steps">
+            <li><strong>Choose the service.</strong><span>Model the Fort Collins–Denver starter schedule or full Fort Collins–Pueblo service.</span></li>
+            <li><strong>Set the assumptions.</strong><span>Move any slider, configure stops, or load a preset; results update immediately.</span></li>
+            <li><strong>Test uncertainty.</strong><span>Select Add band on critical inputs and move the lower and upper dots to create cost envelopes.</span></li>
+            <li><strong>Inspect the result.</strong><span>Compare all four options, then select a powertrain row to reveal its lifecycle cost breakdown.</span></li>
+          </ol>
+          <p className="dashboard-intro-boundary">
+            <strong>Model boundary:</strong> Results are illustrative screening estimates—not a forecast,
+            confidence interval, engineering design, or procurement recommendation.
+          </p>
+        </div>
+      </details>
+
       <section className="executive-summary">
         <div>
           <p className="eyebrow">Current assumption set</p>
