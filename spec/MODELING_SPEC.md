@@ -14,7 +14,7 @@ design model.
 
 ## Product principles
 
-1. **Unknown means editable and bandable.** Car count, circuits, fleet size,
+1. **Unknown means editable and bandable.** Car count, daily round trips, fleet size,
    costs, and operating parameters are assumptions, not embedded facts. Every numeric
    input can carry lower and upper screening estimates around its base value using three
    directly draggable slider handles rather than separate text fields.
@@ -30,8 +30,9 @@ design model.
 
 ## MVP user story
 
-An executive selects a service pattern and changes fleet size, daily full-system circuits,
-car count, passenger load, speed, asset life, discount rate, fuel prices, and technology costs. Any slider can be
+An executive selects starter or full service and changes fleet size, round trips per train,
+car count, passenger load, speed, asset life, discount rate, fuel and electricity prices,
+demand charges, storage attenuation, and technology costs. Any slider can be
 expanded into lower/base/upper estimates. The comparison immediately shows which option
 has the lowest equivalent annual lifecycle cost, its screening range, and why. The user
 can expand assumption groups in a persistent sidebar to inspect or change the full
@@ -39,28 +40,29 @@ calculation basis, or load a named preset that explicitly sets both base values 
 
 ## Calculation boundary
 
-### Full-corridor representation
+### Service extents
 
-The single modeled service extent is Fort Collins–Pueblo, represented as an ordered list
-of station-to-station segments with:
+The route is represented as an ordered list of station-to-station segments with:
 
 - distance;
 - elevation change; and
 - one stop-to-stop acceleration/braking event.
 
-The reverse direction reverses the segments and elevation signs. North, south, and starter
-routes are no longer separate scenario choices. Initial Colorado route
+The reverse direction reverses the segments and elevation signs. Initial Colorado route
 data are inherited from the first-cut repository and remain explicitly marked as
 placeholder data.
 
-The service-pattern choice is:
+The service-extent choice is:
 
-- **Through-running:** every train circuit is Fort Collins–Pueblo–Fort Collins.
-- **Dedicated:** every full-system circuit is one Fort Collins–Denver–Fort Collins round
-  trip plus one Denver–Pueblo–Denver round trip, operated by separate train pools.
+- **Starter service:** Fort Collins–Denver. The default is one train making three complete
+  round trips per day. The attached illustrative schedule contains three southbound and
+  three northbound departures, so this is six one-way trips and lets the train start and
+  end in Fort Collins.
+- **Full service:** Fort Collins–Pueblo. The default is twelve trains, each making one
+  full-span round trip per day, with higher round-trip counts available as an assumption.
 
-This definition holds corridor coverage constant while allowing dedicated operation to
-show integer fleet-allocation effects and a Denver transfer.
+South-of-Denver segments and facilities are excluded from starter-service energy,
+infrastructure, operating, and battery-sizing calculations.
 
 ### Train mass and passenger load
 
@@ -101,31 +103,32 @@ keeping each term inspectable.
 
 ### Annual service and fleet
 
-The user directly specifies total procured trains and full-system circuits per day. Annual
-train-miles and carrier use are the energy and distance of one complete system circuit
-times circuits per day and service days per year. Through and dedicated patterns therefore
-provide the same corridor coverage at a given circuit setting.
+The user directly specifies total procured trains and round trips per train per day.
 
-`circuits_per_day` is the total completed by the fleet, not a quota for every train. In the
-through pattern, one circuit is one Fort Collins–Pueblo–Fort Collins round trip. In the
-dedicated pattern, one circuit pairs one north round trip with one south round trip.
+```text
+fleet_round_trips_per_day = total_trains × round_trips_per_train_per_day
+annual_train_miles = 2 × active_route_miles × fleet_round_trips_per_day × service_days
+```
+
+Each starter round trip is Fort Collins–Denver–Fort Collins. Each full-service round trip
+is Fort Collins–Pueblo–Fort Collins. Because the service rate is per train, increasing the
+fleet increases vehicle capital and scheduled operations together.
 
 The specified fleet drives vehicle capital. A separate capacity screen estimates the
 minimum fleet needed from moving time, configured stopovers, service span, and spare ratio:
 
 ```text
-vehicle_hours_per_day = circuits_per_day × circuit_time
+vehicle_hours_per_day = fleet_round_trips_per_day × round_trip_time
 required_trainsets = ceil(vehicle_hours_per_day / service_span / (1 - spare_ratio))
 ```
 
-For dedicated operation, north and south requirements are rounded separately and summed.
 This screen does not automatically overwrite the user's fleet assumption.
 
 ### Stop-configured charging and fueling infrastructure
 
 The user enables battery charging and hydrogen fueling independently at Fort Collins,
 Denver, Colorado Springs, and Pueblo and specifies a stopover at each location. For each
-operating circuit, the model sums energy from the preceding enabled facility and derives
+operating round trip, the model sums energy from the preceding enabled facility and derives
 the replenishment required per arrival.
 
 ```text
@@ -146,6 +149,27 @@ BEMU and hydrogen infrastructure capital is the sum of calculated site capital; 
 former fixed $14M and $30M allowances are removed. Catenary retains fixed and route-mile
 infrastructure inputs. These calculations are capacity-screening approximations, not
 utility, hydrogen-production, storage, or station engineering designs.
+
+### Electricity tariff and peak attenuation
+
+BEMU and catenary electricity cost is split into energy and demand charges:
+
+```text
+annual_energy_charge = annual_kwh × average_energy_rate_per_kwh
+billed_peak_kw = unattenuated_peak_kw × (1 - storage_attenuation_fraction)
+annual_demand_charge = billed_peak_kw × demand_rate_per_kw_month × 12
+annual_electricity_cost = annual_energy_charge + annual_demand_charge
+```
+
+For BEMU, unattenuated peak is the sum of modeled charging-facility kW because demand
+charges are additive across the simplified site meters. For catenary, the model calculates
+the maximum segment-average carrier kW for one train and multiplies it by an estimated
+number of simultaneously moving trains over the service span. This is a tariff-screening
+peak, not a traction-power simulation.
+
+Storage attenuation changes billed kW only. The MVP does not yet price storage capital,
+round-trip losses, degradation, dispatch constraints, or energy arbitrage; therefore a
+high attenuation assumption should not be interpreted as a free optimized storage design.
 
 ### Lifecycle cost
 
@@ -173,7 +197,7 @@ the battery interval; other technologies retain a replacement share of vehicle c
 
 The illustrative default `fixed_vehicle_cost` is $5M per train and
 `vehicle_cost_per_car` is $0.75M per car for every powertrain. These represent a common
-base platform; BEMU batteries are added separately. Balanced and capital-stress presets
+base platform; BEMU batteries are added separately. Starter-schedule and capital-stress presets
 apply identical base-vehicle bands to all four technologies.
 
 For display, lifecycle NPV is decomposed into mutually exclusive equivalent-annual
@@ -184,12 +208,15 @@ base vehicle capital / annuity factor
 battery pack capital / annuity factor
 infrastructure capital / annuity factor
 annual energy
+annual demand charges
 annual vehicle maintenance
 annual infrastructure maintenance
 replacement NPV / annuity factor
 ```
 
 Their sum must equal the headline equivalent annual lifecycle cost.
+
+For electric technologies, annual energy and demand charges are displayed separately.
 
 ### Passenger and carbon metrics
 
@@ -258,12 +285,12 @@ modules.
 
 ### Expandable assumption suite
 
-- Service and fleet
+- Service extent, per-train round trips, and fleet
 - Train and energy
 - Charging and fueling unit costs
 - Charging and fueling locations and stopovers
 - Financial
-- Fuel and emissions
+- Fuel, electricity tariff, storage attenuation, and emissions
 - Technology capital and maintenance
 
 Each assumption should ultimately carry units, source, source date, and confidence rating.
@@ -276,7 +303,7 @@ restores the illustrative defaults, then applies the preset's service/technology
 base positions and exact uncertainty bands. A subsequent manual edit clears the loaded
 preset indicator so the UI does not imply that the original bundle is unchanged.
 
-The MVP includes balanced screening, capital-cost stress, high-service corridor, and
+The MVP includes starter schedule, full-service screening, capital-cost stress, and
 energy-price volatility presets. These are illustrative analytical lenses rather than
 forecasts or adopted FRPR scenarios.
 
@@ -292,7 +319,7 @@ forecasts or adopted FRPR scenarios.
 
 - Monte Carlo or precomputed model-output libraries
 - Detailed speed profiles or traction-power simulation
-- Electrical network and demand-charge optimization
+- Detailed electrical network, storage sizing, and tariff optimization
 - Timetable conflict resolution
 - Fleet maintenance scheduling
 - Construction phasing and financing during construction
@@ -303,8 +330,8 @@ forecasts or adopted FRPR scenarios.
 1. Dragging any displayed base, lower, or upper slider handle recomputes all technology outcomes immediately.
 2. Both travel directions contribute equally to annual results.
 3. Changing car count changes mass, capacity, auxiliary load, energy, and vehicle cost.
-4. Changing circuits per day changes annual energy, maintenance, carbon, facility sizing,
-   and the fleet sufficiency screen.
+4. Changing round trips per train or total trains changes annual energy, maintenance,
+   carbon, facility sizing, and the fleet sufficiency screen.
 5. The primary ranking uses equivalent annual lifecycle cost, not energy OPEX alone.
 6. Passenger-normalized metrics use modeled passengers rather than seats.
 7. BEMU reserve is modeled as an unavailable fraction of installed capacity.
@@ -315,14 +342,18 @@ forecasts or adopted FRPR scenarios.
     and adding a charging location can reduce the indicated onboard capacity.
 11. Battery pack $/kWh changes BEMU capital cost without changing calculated capacity,
     and BEMU cost per car excludes the battery pack.
-12. Reference tests cover bidirectional grade symmetry, battery mass, circuit scaling,
-   explicit fleet capital, service-pattern fleet needs, lifecycle discounting, BEMU reserve,
+12. Reference tests cover bidirectional grade symmetry, battery mass, round-trip scaling,
+   fleet/service coupling, service extent, lifecycle discounting, BEMU reserve,
    facility sizing, and cost envelopes.
 13. Loading a preset deterministically replaces all prior inputs and bands; manual edits
    visibly leave the loaded-preset state.
 14. Default per-train and per-car base vehicle costs are identical for all powertrains.
 15. Expanded cost components are sorted by magnitude and sum to the displayed equivalent
     annual lifecycle cost.
+16. Starter service defaults to one train making three complete Fort Collins–Denver round
+    trips and excludes south-of-Denver route and facility costs.
+17. BEMU and catenary electricity cost includes separate energy and demand charges;
+    storage attenuation reduces billed peak without changing annual kWh.
 
 ## Recommended next increments
 

@@ -8,14 +8,16 @@ This public-facing dashboard was developed as a separate companion to
 It preserves a clear link to that first-cut analysis while allowing the interactive model,
 assumptions, and release cycle to evolve independently.
 
-The model now represents the full Fort Collins–Pueblo service. The operating pattern is
-either through-running trains over the full corridor or dedicated north and south trains
-with a Denver transfer. Fleet size and full-system circuits per day replace the ambiguous
-one-way-trip input.
+The service choice is either **starter service** between Fort Collins and Denver or
+**full service** between Fort Collins and Pueblo. Starter defaults to one train making
+three complete Fort Collins–Denver–Fort Collins round trips per day. This corresponds to
+the three southbound and three northbound departures in the illustrative joint-service
+schedule and allows the train to start and end in Fort Collins. Full service defaults to
+twelve trains, each making one Fort Collins–Pueblo–Fort Collins round trip per day.
 
-Circuits per day is a fleet-wide service total, not a per-train target. For through-running,
-one circuit is Fort Collins–Pueblo–Fort Collins. For dedicated operation, one circuit is a
-matched north round trip plus south round trip using separate train pools.
+Fleet size and round trips per train per day are both editable. Their product determines
+fleet-wide daily round trips, so additional trains increase both vehicle capital and
+scheduled service.
 
 Car count, passenger load, operating speed, fleet, energy prices, technology performance,
 vehicle cost, maintenance, asset life, and discount rate remain editable. Battery mass is
@@ -37,19 +39,26 @@ each site from replenishment demand, stopover time, scheduled arrivals, and conc
 then prices BEMU grid/charger capacity and hydrogen supply/dispensing capacity from
 editable unit costs. This replaces the former $14M and $30M blanket allowances.
 
+Electricity operating cost is separated into an average energy charge and a monthly
+demand charge. BEMU demand uses the sum of modeled charging-site peaks; catenary demand
+uses a screening estimate of concurrent train peak. An editable storage-attenuation
+percentage reduces billed kW without reducing kWh. Storage capital, losses, and energy
+arbitrage are intentionally excluded.
+
 Every numeric slider can also carry lower and upper estimates. Enabling a band adds two
 draggable endpoint handles around the darker base-value handle. A deterministic bounded
 search recomputes a technology-specific lifecycle-cost screening envelope immediately;
 the unified chart compares those ranges on one axis without precomputing scenarios.
 
-Inputs live in a sticky, collapsible sidebar. Four transparent preset buttons—balanced
-screening, capital-cost stress, high-service corridor, and energy-price volatility—reset
+Inputs live in a sticky, collapsible sidebar. Four transparent preset buttons—starter
+schedule, full-service screening, capital-cost stress, and energy-price volatility—reset
 the model to known base values and then apply documented bands. They are editable starting
 points, not cached model outputs.
 
 Clicking any powertrain row expands a lifecycle-cost chart. It sorts the equivalent
 annual contributions from largest to smallest and separates base vehicles, battery packs,
-infrastructure, energy, vehicle maintenance, infrastructure maintenance, and replacements.
+infrastructure, electricity energy, demand charges, vehicle maintenance, infrastructure
+maintenance, and replacements.
 
 The conventional diesel option is labeled **Diesel locomotive**. The initial calculation
 assumes diesel-electric transmission, but the neutral label avoids implying that FRPR has

@@ -1,9 +1,9 @@
-"""Closed-form full-corridor energy, facility, and lifecycle-cost pipeline."""
+"""Closed-form service, energy, facility, and lifecycle-cost pipeline."""
 
 from dataclasses import replace
 from math import ceil
 
-from .defaults import DEFAULT_STOPS, FULL_ROUTE
+from .defaults import DEFAULT_STOPS, FULL_ROUTE, STARTER_ROUTE
 from .types import Assumptions, CostComponent, CostRange, DirectionEnergy, FacilityCapacity, Route, ServiceStop, Technology, TechnologyOutcome
 
 
@@ -45,9 +45,15 @@ class DecisionModel:
 
     @staticmethod
     def circuits(pattern: str) -> tuple[tuple[str, ...], ...]:
-        if pattern == "through":
-            return (("fort-collins", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver"),)
-        return (("fort-collins", "denver"), ("denver", "colorado-springs", "pueblo", "colorado-springs"))
+        if pattern == "starter":
+            return (("fort-collins", "denver"),)
+        return (("fort-collins", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver"),)
+
+    def service_route(self) -> Route:
+        return STARTER_ROUTE if self.assumptions.service_pattern == "starter" else FULL_ROUTE
+
+    def daily_round_trips(self) -> int:
+        return self.assumptions.total_trains * self.assumptions.round_trips_per_train_per_day
 
     def route_between(self, origin: str, destination: str) -> Route:
         start, end = self.STOP_INDEX[origin], self.STOP_INDEX[destination]
@@ -59,7 +65,7 @@ class DecisionModel:
         def needed(nodes: tuple[str, ...]) -> int:
             moving = sum(self.route_between(node, nodes[(index + 1) % len(nodes)]).distance_mi for index, node in enumerate(nodes)) / a.moving_speed_mph
             dwell = sum(next(stop.dwell_minutes for stop in self.stops if stop.key == node) for node in nodes) / 60
-            return ceil(a.circuits_per_day * (moving + dwell) / a.service_span_hours / max(1 - a.spare_ratio, 0.01))
+            return ceil(self.daily_round_trips() * (moving + dwell) / a.service_span_hours / max(1 - a.spare_ratio, 0.01))
         return sum(needed(nodes) for nodes in self.circuits(a.service_pattern))
 
     def facility_sizing(self, technology: Technology, battery_kwh_per_car: float = 0.0) -> tuple[tuple[FacilityCapacity, ...], float]:
@@ -86,10 +92,11 @@ class DecisionModel:
                 max_gap_kwh = max(max_gap_kwh, carrier_kwh)
                 events.append((nodes[current], carrier_kwh, carrier_units))
 
+        active_stop_keys = {key for nodes in self.circuits(a.service_pattern) for key in nodes}
         facilities: list[FacilityCapacity] = []
-        for stop in (item for item in self.stops if getattr(item, enabled_attr)):
+        for stop in (item for item in self.stops if item.key in active_stop_keys and getattr(item, enabled_attr)):
             site_events = [event for event in events if event[0] == stop.key]
-            events_per_day = len(site_events) * a.circuits_per_day
+            events_per_day = len(site_events) * self.daily_round_trips()
             concurrency = max(1, ceil(events_per_day * stop.dwell_minutes / (a.service_span_hours * 60)))
             max_kwh = max((event[1] for event in site_events), default=0)
             max_units = max((event[2] for event in site_events), default=0)
@@ -98,7 +105,7 @@ class DecisionModel:
                 capital = kw * (a.grid_upgrade_usd_per_kw + a.charger_equipment_usd_per_kw) / 1e6
                 facilities.append(FacilityCapacity(stop.key, stop.name, stop.dwell_minutes, kw, "kW", kw, "kW", capital))
             else:
-                kg_day = sum(event[2] for event in site_events) * a.circuits_per_day
+                kg_day = sum(event[2] for event in site_events) * self.daily_round_trips()
                 kg_hour = max_units / max(stop.dwell_minutes / 60, 1 / 60) * concurrency
                 capital = (kg_day * a.hydrogen_supply_usd_per_kg_day + kg_hour * a.hydrogen_dispenser_usd_per_kg_hour) / 1e6
                 facilities.append(FacilityCapacity(stop.key, stop.name, stop.dwell_minutes, kg_day, "kg/day", kg_hour, "kg/hour", capital))
@@ -116,28 +123,49 @@ class DecisionModel:
             estimate = min(next_estimate, 10000)
         return estimate
 
+    def catenary_peak_demand_kw(self, route: Route, technology: Technology) -> float:
+        a = self.assumptions
+        peak_per_train_kw = max(
+            self.direction_energy(Route(route.key, route.name, (segment,)), technology).carrier_kwh
+            / max(segment.distance_mi / a.moving_speed_mph, 1 / 60)
+            for segment in route.segments
+        )
+        moving_train_hours = self.daily_round_trips() * 2 * route.distance_mi / a.moving_speed_mph
+        concurrent_trains = max(1, min(a.total_trains, ceil(moving_train_hours / a.service_span_hours)))
+        return peak_per_train_kw * concurrent_trains
+
     def outcome(self, technology: Technology) -> TechnologyOutcome:
         a = self.assumptions
+        route = self.service_route()
         required_per_car = self.required_battery_kwh_per_car(technology) if technology.key == "bemu" else None
         battery_kwh_per_car = required_per_car or 0.0
-        outbound = self.direction_energy(FULL_ROUTE, technology, battery_kwh_per_car)
-        inbound = self.direction_energy(FULL_ROUTE.reversed(), technology, battery_kwh_per_car)
-        annual_circuits = a.circuits_per_day * a.service_days_per_year
-        annual_units = (outbound.carrier_units + inbound.carrier_units) * annual_circuits
-        train_miles = 2 * FULL_ROUTE.distance_mi * annual_circuits
+        outbound = self.direction_energy(route, technology, battery_kwh_per_car)
+        inbound = self.direction_energy(route.reversed(), technology, battery_kwh_per_car)
+        annual_round_trips = self.daily_round_trips() * a.service_days_per_year
+        annual_units = (outbound.carrier_units + inbound.carrier_units) * annual_round_trips
+        train_miles = 2 * route.distance_mi * annual_round_trips
         if technology.key in ("bemu", "hydrogen"):
             facilities, max_gap = self.facility_sizing(technology, battery_kwh_per_car)
             infrastructure = sum(item.capital_musd for item in facilities)
         else:
             facilities = ()
             max_gap = max(outbound.carrier_kwh, inbound.carrier_kwh)
-            infrastructure = technology.fixed_infrastructure_musd + FULL_ROUTE.distance_mi * technology.infrastructure_musd_per_route_mile
+            infrastructure = technology.fixed_infrastructure_musd + route.distance_mi * technology.infrastructure_musd_per_route_mile
         installed = a.cars * battery_kwh_per_car if technology.key == "bemu" else 0.0
         battery_capital = a.total_trains * installed * a.battery_cost_usd_per_kwh / 1e6 if technology.key == "bemu" else 0.0
         base_vehicle_capital = a.total_trains * (technology.fixed_vehicle_cost_musd + a.cars * technology.vehicle_cost_musd_per_car)
         vehicle_capital = base_vehicle_capital + battery_capital
         initial_capital = vehicle_capital + infrastructure
-        energy_cost = annual_units * technology.carrier_cost_per_unit / 1e6
+        is_electric = technology.key in ("bemu", "catenary")
+        energy_charge = annual_units * (a.electricity_energy_usd_per_kwh if is_electric else technology.carrier_cost_per_unit) / 1e6
+        unattenuated_peak_demand_kw = (
+            sum(item.peak_rate for item in facilities) if technology.key == "bemu"
+            else self.catenary_peak_demand_kw(route, technology) if technology.key == "catenary"
+            else 0.0
+        )
+        billed_peak_demand_kw = unattenuated_peak_demand_kw * (1 - min(1, max(0, a.peak_demand_attenuation_fraction)))
+        demand_charge = billed_peak_demand_kw * a.electricity_demand_usd_per_kw_month * 12 / 1e6 if is_electric else 0.0
+        energy_cost = energy_charge + demand_charge
         vehicle_maintenance = train_miles * technology.maintenance_usd_per_train_mile / 1e6
         infrastructure_maintenance = infrastructure * technology.infrastructure_maintenance_rate
         maintenance = vehicle_maintenance + infrastructure_maintenance
@@ -158,7 +186,8 @@ class DecisionModel:
             CostComponent("base-vehicles", "Base vehicle capital", base_vehicle_capital / af),
             CostComponent("battery", "Battery pack capital", battery_capital / af),
             CostComponent("infrastructure", "Infrastructure capital", infrastructure / af),
-            CostComponent("energy", "Energy", energy_cost),
+            CostComponent("energy", "Electricity energy" if is_electric else "Energy", energy_charge),
+            CostComponent("demand", "Electricity demand charges", demand_charge),
             CostComponent("vehicle-maintenance", "Vehicle maintenance", vehicle_maintenance),
             CostComponent("infrastructure-maintenance", "Infrastructure maintenance", infrastructure_maintenance),
             CostComponent("replacements", "Scheduled replacements", replacement_npv / af),
@@ -166,7 +195,8 @@ class DecisionModel:
         return TechnologyOutcome(
             technology=technology.key, fleet_size=a.total_trains, required_fleet_size=required,
             fleet_sufficient=a.total_trains >= required, initial_capital_musd=initial_capital,
-            infrastructure_capital_musd=infrastructure, annual_operating_musd=annual_operating,
+            infrastructure_capital_musd=infrastructure, annual_energy_charge_musd=energy_charge,
+            annual_demand_charge_musd=demand_charge, annual_operating_musd=annual_operating,
             lifecycle_npv_musd=npv, equivalent_annual_cost_musd=eac,
             cost_per_passenger_mile_usd=eac * 1e6 / (train_miles * a.cars * a.seats_per_car * a.load_factor),
             annual_emissions_tonnes=annual_units * technology.emissions_kg_per_unit / 1000,
@@ -178,6 +208,8 @@ class DecisionModel:
             battery_mass_tonnes=installed * a.battery_specific_mass_kg_per_kwh / 1000 if technology.key == "bemu" else None,
             battery_capital_musd=battery_capital if technology.key == "bemu" else None,
             indicative_charger_mw=sum(item.peak_rate for item in facilities) / 1000 if technology.key == "bemu" else None,
+            unattenuated_peak_demand_kw=unattenuated_peak_demand_kw,
+            billed_peak_demand_kw=billed_peak_demand_kw,
             facility_capacities=facilities,
             cost_components=cost_components,
         )

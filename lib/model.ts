@@ -1,5 +1,5 @@
 export type Segment = { name: string; distanceMi: number; elevationChangeFt: number };
-export type ServicePattern = "through" | "dedicated";
+export type ServicePattern = "starter" | "full";
 
 export type Route = {
   key: string;
@@ -42,7 +42,7 @@ export type Technology = {
 export type Assumptions = {
   servicePattern: ServicePattern;
   totalTrains: number;
-  circuitsPerDay: number;
+  roundTripsPerTrainPerDay: number;
   cars: number;
   seatsPerCar: number;
   tareTonnesPerCar: number;
@@ -64,6 +64,9 @@ export type Assumptions = {
   chargingEfficiency: number;
   gridUpgradeUsdPerKw: number;
   chargerEquipmentUsdPerKw: number;
+  electricityEnergyUsdPerKwh: number;
+  electricityDemandUsdPerKwMonth: number;
+  peakDemandAttenuationFraction: number;
   hydrogenSupplyUsdPerKgDay: number;
   hydrogenDispenserUsdPerKgHour: number;
 };
@@ -93,6 +96,8 @@ export type Outcome = {
   initialCapitalMUsd: number;
   infrastructureCapitalMUsd: number;
   annualEnergyMUsd: number;
+  annualEnergyChargeMUsd: number;
+  annualDemandChargeMUsd: number;
   annualMaintenanceMUsd: number;
   annualOperatingMUsd: number;
   lifecycleNpvMUsd: number;
@@ -108,6 +113,8 @@ export type Outcome = {
   batteryMassTonnes: number | null;
   batteryCapitalMUsd: number | null;
   indicativeChargerMw: number | null;
+  unattenuatedPeakDemandKw: number;
+  billedPeakDemandKw: number;
   facilityCapacities: FacilityCapacity[];
   costComponents: CostComponent[];
 };
@@ -138,6 +145,14 @@ export const FULL_ROUTE: Route = {
   ],
 };
 
+export const STARTER_ROUTE: Route = {
+  key: "starter",
+  name: "Fort Collins — Denver",
+  shortName: "Starter corridor · 65 mi",
+  status: "Illustrative joint-service schedule and placeholder alignment",
+  segments: FULL_ROUTE.segments.slice(0, 5),
+};
+
 export const DEFAULT_STOPS: ServiceStop[] = [
   { key: "fort-collins", name: "Fort Collins", milepost: 0, dwellMinutes: 30, bemuEnabled: true, hydrogenEnabled: true },
   { key: "denver", name: "Denver", milepost: 65, dwellMinutes: 20, bemuEnabled: true, hydrogenEnabled: true },
@@ -146,13 +161,15 @@ export const DEFAULT_STOPS: ServiceStop[] = [
 ];
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
-  servicePattern: "through", totalTrains: 12, circuitsPerDay: 4, cars: 8, seatsPerCar: 60,
+  servicePattern: "starter", totalTrains: 1, roundTripsPerTrainPerDay: 3, cars: 8, seatsPerCar: 60,
   tareTonnesPerCar: 35, loadFactor: 0.5, passengerMassKg: 80, movingSpeedMph: 65,
   crr: 0.0017, airDensityKgM3: 1.02, dragAreaM2: 16, auxiliaryKwPerCar: 10,
   serviceDaysPerYear: 340, serviceSpanHours: 16, spareRatio: 0.2, analysisYears: 30,
   realDiscountRate: 0.04, batteryCostUsdPerKwh: 350, batterySpecificMassKgPerKwh: 6,
   batteryReserveFraction: 0.2, chargingEfficiency: 0.92, gridUpgradeUsdPerKw: 450,
-  chargerEquipmentUsdPerKw: 650, hydrogenSupplyUsdPerKgDay: 1600,
+  chargerEquipmentUsdPerKw: 650, electricityEnergyUsdPerKwh: 0.09,
+  electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5,
+  hydrogenSupplyUsdPerKgDay: 1600,
   hydrogenDispenserUsdPerKgHour: 85000,
 };
 
@@ -170,6 +187,8 @@ const J_PER_KWH = 3.6e6;
 const STOP_INDEX: Record<ServiceStop["key"], number> = { "fort-collins": 0, denver: 5, "colorado-springs": 9, pueblo: 11 };
 
 function routeDistance(route: Route) { return route.segments.reduce((sum, item) => sum + item.distanceMi, 0); }
+export function serviceRoute(pattern: ServicePattern) { return pattern === "starter" ? STARTER_ROUTE : FULL_ROUTE; }
+function dailyRoundTrips(a: Assumptions) { return a.totalTrains * a.roundTripsPerTrainPerDay; }
 function reverseRoute(route: Route): Route { return { ...route, key: `${route.key}-reverse`, segments: [...route.segments].reverse().map((item) => ({ ...item, elevationChangeFt: -item.elevationChangeFt })) }; }
 function routeBetween(from: ServiceStop["key"], to: ServiceStop["key"]): Route {
   const start = STOP_INDEX[from];
@@ -203,9 +222,9 @@ function directionEnergy(route: Route, tech: Technology, a: Assumptions, battery
 }
 
 function circuitDefinitions(pattern: ServicePattern): ServiceStop["key"][][] {
-  return pattern === "through"
-    ? [["fort-collins", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver"]]
-    : [["fort-collins", "denver"], ["denver", "colorado-springs", "pueblo", "colorado-springs"]];
+  return pattern === "starter"
+    ? [["fort-collins", "denver"]]
+    : [["fort-collins", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver"]];
 }
 function circuitLegEnergies(nodes: ServiceStop["key"][], tech: Technology, a: Assumptions, batteryKwhPerCar = 0) { return nodes.map((from, index) => directionEnergy(routeBetween(from, nodes[(index + 1) % nodes.length]), tech, a, batteryKwhPerCar)); }
 
@@ -235,9 +254,10 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
     });
   });
 
-  const facilities = stops.filter((stop) => stop[enabledField]).map((stop): FacilityCapacity => {
+  const activeStopKeys = new Set(circuitDefinitions(a.servicePattern).flat());
+  const facilities = stops.filter((stop) => activeStopKeys.has(stop.key) && stop[enabledField]).map((stop): FacilityCapacity => {
     const siteEvents = events.filter((event) => event.stopKey === stop.key);
-    const eventsPerDay = siteEvents.length * a.circuitsPerDay;
+    const eventsPerDay = siteEvents.length * dailyRoundTrips(a);
     const concurrency = Math.max(1, Math.ceil(eventsPerDay * stop.dwellMinutes / (a.serviceSpanHours * 60)));
     const maxEventKwh = Math.max(0, ...siteEvents.map((event) => event.carrierKwh));
     const maxEventUnits = Math.max(0, ...siteEvents.map((event) => event.carrierUnits));
@@ -245,7 +265,7 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
       const capacityKw = maxEventKwh / a.chargingEfficiency / Math.max(stop.dwellMinutes / 60, 1 / 60) * concurrency;
       return { stopKey: stop.key, stopName: stop.name, dwellMinutes: stop.dwellMinutes, capacity: capacityKw, capacityUnit: "kW", peakRate: capacityKw, peakRateUnit: "kW", capitalMUsd: capacityKw * (a.gridUpgradeUsdPerKw + a.chargerEquipmentUsdPerKw) / 1e6 };
     }
-    const dailyKg = siteEvents.reduce((sum, event) => sum + event.carrierUnits, 0) * a.circuitsPerDay;
+    const dailyKg = siteEvents.reduce((sum, event) => sum + event.carrierUnits, 0) * dailyRoundTrips(a);
     const peakKgHour = maxEventUnits / Math.max(stop.dwellMinutes / 60, 1 / 60) * concurrency;
     return { stopKey: stop.key, stopName: stop.name, dwellMinutes: stop.dwellMinutes, capacity: dailyKg, capacityUnit: "kg/day", peakRate: peakKgHour, peakRateUnit: "kg/hour", capitalMUsd: (dailyKg * a.hydrogenSupplyUsdPerKgDay + peakKgHour * a.hydrogenDispenserUsdPerKgHour) / 1e6 };
   });
@@ -270,24 +290,36 @@ function requiredFleet(a: Assumptions, stops: ServiceStop[]) {
     const dwell = nodes.reduce((sum, key) => sum + (stops.find((stop) => stop.key === key)?.dwellMinutes ?? 0) / 60, 0);
     return moving + dwell;
   };
-  const needed = (nodes: ServiceStop["key"][]) => Math.ceil(a.circuitsPerDay * cycleHours(nodes) / a.serviceSpanHours / spareDivisor);
-  return a.servicePattern === "through" ? needed(circuitDefinitions("through")[0]) : circuitDefinitions("dedicated").reduce((sum, nodes) => sum + needed(nodes), 0);
+  const needed = (nodes: ServiceStop["key"][]) => Math.ceil(dailyRoundTrips(a) * cycleHours(nodes) / a.serviceSpanHours / spareDivisor);
+  return needed(circuitDefinitions(a.servicePattern)[0]);
+}
+
+function catenaryPeakDemandKw(route: Route, tech: Technology, a: Assumptions) {
+  const peakPerTrainKw = Math.max(...route.segments.map((item) => {
+    const segmentRoute: Route = { ...route, segments: [item] };
+    const durationHours = item.distanceMi / a.movingSpeedMph;
+    return directionEnergy(segmentRoute, tech, a).carrierKwh / Math.max(durationHours, 1 / 60);
+  }));
+  const movingTrainHours = dailyRoundTrips(a) * 2 * routeDistance(route) / a.movingSpeedMph;
+  const concurrentTrains = Math.max(1, Math.min(a.totalTrains, Math.ceil(movingTrainHours / a.serviceSpanHours)));
+  return peakPerTrainKw * concurrentTrains;
 }
 
 function annuityFactor(rate: number, years: number) { return rate === 0 ? years : (1 - (1 + rate) ** -years) / rate; }
 
 export function calculateOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[]): Outcome[] {
-  const distanceMi = routeDistance(FULL_ROUTE);
-  const annualCircuits = a.circuitsPerDay * a.serviceDaysPerYear;
-  const trainMiles = 2 * distanceMi * annualCircuits;
+  const route = serviceRoute(a.servicePattern);
+  const distanceMi = routeDistance(route);
+  const annualRoundTrips = dailyRoundTrips(a) * a.serviceDaysPerYear;
+  const trainMiles = 2 * distanceMi * annualRoundTrips;
   const required = requiredFleet(a, stops);
   const af = annuityFactor(a.realDiscountRate, a.analysisYears);
   return technologies.map((tech): Outcome => {
     const requiredPerCar = tech.key === "bemu" ? requiredBatteryKwhPerCar(tech, a, stops) : null;
     const batteryKwhPerCar = requiredPerCar ?? 0;
-    const outbound = directionEnergy(FULL_ROUTE, tech, a, batteryKwhPerCar);
-    const inbound = directionEnergy(reverseRoute(FULL_ROUTE), tech, a, batteryKwhPerCar);
-    const annualUnits = (outbound.carrierUnits + inbound.carrierUnits) * annualCircuits;
+    const outbound = directionEnergy(route, tech, a, batteryKwhPerCar);
+    const inbound = directionEnergy(reverseRoute(route), tech, a, batteryKwhPerCar);
+    const annualUnits = (outbound.carrierUnits + inbound.carrierUnits) * annualRoundTrips;
     const sized = tech.key === "bemu" || tech.key === "hydrogen" ? facilitySizing(tech, a, stops, batteryKwhPerCar) : { facilities: [], maxGapKwh: Math.max(outbound.carrierKwh, inbound.carrierKwh) };
     const infrastructure = tech.key === "bemu" || tech.key === "hydrogen" ? sized.facilities.reduce((sum, facility) => sum + facility.capitalMUsd, 0) : tech.fixedInfrastructureMUsd + distanceMi * tech.infrastructureMUsdPerRouteMile;
     const installedBattery = tech.key === "bemu" ? a.cars * batteryKwhPerCar : 0;
@@ -295,7 +327,14 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
     const baseVehicleCapital = a.totalTrains * (tech.fixedVehicleCostMUsd + a.cars * tech.vehicleCostMUsdPerCar);
     const vehicleCapital = baseVehicleCapital + batteryCapital;
     const initialCapital = vehicleCapital + infrastructure;
-    const energyCost = annualUnits * tech.carrierCostPerUnit / 1e6;
+    const isElectric = tech.key === "bemu" || tech.key === "catenary";
+    const energyCharge = annualUnits * (isElectric ? a.electricityEnergyUsdPerKwh : tech.carrierCostPerUnit) / 1e6;
+    const unattenuatedPeakDemandKw = tech.key === "bemu"
+      ? sized.facilities.reduce((sum, facility) => sum + facility.peakRate, 0)
+      : tech.key === "catenary" ? catenaryPeakDemandKw(route, tech, a) : 0;
+    const billedPeakDemandKw = unattenuatedPeakDemandKw * (1 - Math.min(1, Math.max(0, a.peakDemandAttenuationFraction)));
+    const demandCharge = isElectric ? billedPeakDemandKw * a.electricityDemandUsdPerKwMonth * 12 / 1e6 : 0;
+    const energyCost = energyCharge + demandCharge;
     const vehicleMaintenance = trainMiles * tech.maintenanceUsdPerTrainMile / 1e6;
     const infrastructureMaintenance = infrastructure * tech.infrastructureMaintenanceRate;
     const maintenance = vehicleMaintenance + infrastructureMaintenance;
@@ -313,6 +352,7 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
     return {
       technology: tech, fleetSize: a.totalTrains, requiredFleetSize: required, fleetSufficient: a.totalTrains >= required,
       initialCapitalMUsd: initialCapital, infrastructureCapitalMUsd: infrastructure, annualEnergyMUsd: energyCost,
+      annualEnergyChargeMUsd: energyCharge, annualDemandChargeMUsd: demandCharge,
       annualMaintenanceMUsd: maintenance, annualOperatingMUsd: annualOperating, lifecycleNpvMUsd: npv,
       equivalentAnnualCostMUsd: eac, costPerPassengerMileUsd: eac * 1e6 / (trainMiles * a.cars * a.seatsPerCar * a.loadFactor),
       annualEmissionsTonnes: annualUnits * tech.emissionsKgPerUnit / 1000, annualCarrierUnits: annualUnits,
@@ -324,12 +364,14 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
       batteryMassTonnes: tech.key === "bemu" ? installedBattery * a.batterySpecificMassKgPerKwh / 1000 : null,
       batteryCapitalMUsd: tech.key === "bemu" ? batteryCapital : null,
       indicativeChargerMw: tech.key === "bemu" ? sized.facilities.reduce((sum, facility) => sum + facility.peakRate, 0) / 1000 : null,
+      unattenuatedPeakDemandKw, billedPeakDemandKw,
       facilityCapacities: sized.facilities,
       costComponents: [
         { key: "base-vehicles", label: "Base vehicle capital", equivalentAnnualMUsd: baseVehicleCapital / af },
         { key: "battery", label: "Battery pack capital", equivalentAnnualMUsd: batteryCapital / af },
         { key: "infrastructure", label: "Infrastructure capital", equivalentAnnualMUsd: infrastructure / af },
-        { key: "energy", label: "Energy", equivalentAnnualMUsd: energyCost },
+        { key: "energy", label: isElectric ? "Electricity energy" : "Energy", equivalentAnnualMUsd: energyCharge },
+        { key: "demand", label: "Electricity demand charges", equivalentAnnualMUsd: demandCharge },
         { key: "vehicle-maintenance", label: "Vehicle maintenance", equivalentAnnualMUsd: vehicleMaintenance },
         { key: "infrastructure-maintenance", label: "Infrastructure maintenance", equivalentAnnualMUsd: infrastructureMaintenance },
         { key: "replacements", label: "Scheduled replacements", equivalentAnnualMUsd: replacementNpv / af },

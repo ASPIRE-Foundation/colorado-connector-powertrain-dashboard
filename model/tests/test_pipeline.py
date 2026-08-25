@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from frpr_decision.defaults import DEFAULT_STOPS, FULL_ROUTE, TECHNOLOGIES
+from frpr_decision.defaults import DEFAULT_STOPS, FULL_ROUTE, STARTER_ROUTE, TECHNOLOGIES
 from frpr_decision.pipeline import DecisionModel
 from frpr_decision.types import Assumptions, Route, Segment
 
@@ -24,16 +24,16 @@ class TestDecisionModel:
         assert heavy.direction_energy(FULL_ROUTE, TECHNOLOGIES["bemu"], 300).carrier_kwh > light.direction_energy(FULL_ROUTE, TECHNOLOGIES["bemu"], 300).carrier_kwh
         assert heavy.direction_energy(FULL_ROUTE, TECHNOLOGIES["diesel"]).carrier_kwh == pytest.approx(light.direction_energy(FULL_ROUTE, TECHNOLOGIES["diesel"]).carrier_kwh)
 
-    def test_circuits_scale_annual_use(self):
-        low = DecisionModel(replace(self.assumptions, circuits_per_day=2)).outcome(TECHNOLOGIES["diesel"])
-        high = DecisionModel(replace(self.assumptions, circuits_per_day=6)).outcome(TECHNOLOGIES["diesel"])
+    def test_round_trips_per_train_scale_annual_use(self):
+        low = DecisionModel(replace(self.assumptions, round_trips_per_train_per_day=2)).outcome(TECHNOLOGIES["diesel"])
+        high = DecisionModel(replace(self.assumptions, round_trips_per_train_per_day=6)).outcome(TECHNOLOGIES["diesel"])
         assert high.annual_carrier_units == pytest.approx(low.annual_carrier_units * 3)
 
-    def test_specified_fleet_changes_capital_not_service(self):
-        small = DecisionModel(replace(self.assumptions, total_trains=8)).outcome(TECHNOLOGIES["diesel"])
-        large = DecisionModel(replace(self.assumptions, total_trains=16)).outcome(TECHNOLOGIES["diesel"])
+    def test_specified_fleet_changes_capital_and_service(self):
+        small = DecisionModel(replace(self.assumptions, total_trains=1)).outcome(TECHNOLOGIES["diesel"])
+        large = DecisionModel(replace(self.assumptions, total_trains=2)).outcome(TECHNOLOGIES["diesel"])
         assert large.initial_capital_musd > small.initial_capital_musd
-        assert large.annual_carrier_units == pytest.approx(small.annual_carrier_units)
+        assert large.annual_carrier_units == pytest.approx(small.annual_carrier_units * 2)
 
     def test_default_base_vehicle_costs_are_equal_across_powertrains(self):
         fixed = {technology.fixed_vehicle_cost_musd for technology in TECHNOLOGIES.values()}
@@ -41,10 +41,18 @@ class TestDecisionModel:
         assert fixed == {5.0}
         assert per_car == {0.75}
 
-    def test_dedicated_pattern_has_integer_fleet_penalty(self):
-        through = DecisionModel(replace(self.assumptions, service_pattern="through")).outcome(TECHNOLOGIES["diesel"])
-        dedicated = DecisionModel(replace(self.assumptions, service_pattern="dedicated")).outcome(TECHNOLOGIES["diesel"])
-        assert dedicated.required_fleet_size >= through.required_fleet_size
+    def test_default_starter_schedule_is_three_round_trips_by_one_train(self):
+        assert self.assumptions.service_pattern == "starter"
+        assert self.assumptions.total_trains == 1
+        assert self.assumptions.round_trips_per_train_per_day == 3
+        assert self.model.daily_round_trips() == 3
+        assert self.model.service_route() == STARTER_ROUTE
+
+    def test_full_service_adds_south_route_energy_and_miles(self):
+        starter = self.model.outcome(TECHNOLOGIES["diesel"])
+        full = DecisionModel(replace(self.assumptions, service_pattern="full", round_trips_per_train_per_day=1)).outcome(TECHNOLOGIES["diesel"])
+        assert full.annual_carrier_units > starter.annual_carrier_units / 3
+        assert DecisionModel(replace(self.assumptions, service_pattern="full")).service_route() == FULL_ROUTE
 
     def test_zero_discount_rate_uses_straight_line_annualization(self):
         outcome = DecisionModel(replace(self.assumptions, real_discount_rate=0)).outcome(TECHNOLOGIES["diesel"])
@@ -68,18 +76,45 @@ class TestDecisionModel:
         assert high.battery_capital_musd > low.battery_capital_musd
 
     def test_more_charging_locations_reduce_indicated_battery(self):
-        base = self.model.outcome(TECHNOLOGIES["bemu"])
+        full_assumptions = replace(self.assumptions, service_pattern="full", total_trains=12, round_trips_per_train_per_day=1)
+        base = DecisionModel(full_assumptions).outcome(TECHNOLOGIES["bemu"])
         extra_stop = tuple(replace(stop, bemu_enabled=True) if stop.key == "colorado-springs" else stop for stop in DEFAULT_STOPS)
-        distributed = DecisionModel(self.assumptions, extra_stop).outcome(TECHNOLOGIES["bemu"])
+        distributed = DecisionModel(full_assumptions, extra_stop).outcome(TECHNOLOGIES["bemu"])
         assert distributed.required_battery_kwh_per_car < base.required_battery_kwh_per_car
 
     def test_stop_configuration_sizes_infrastructure(self):
-        base = self.model.outcome(TECHNOLOGIES["bemu"])
+        full_assumptions = replace(self.assumptions, service_pattern="full", total_trains=12, round_trips_per_train_per_day=1)
+        base = DecisionModel(full_assumptions).outcome(TECHNOLOGIES["bemu"])
         extra_stop = tuple(replace(stop, bemu_enabled=True) if stop.key == "colorado-springs" else stop for stop in DEFAULT_STOPS)
-        distributed = DecisionModel(self.assumptions, extra_stop).outcome(TECHNOLOGIES["bemu"])
+        distributed = DecisionModel(full_assumptions, extra_stop).outcome(TECHNOLOGIES["bemu"])
         assert base.infrastructure_capital_musd > 0
         assert all(site.capacity > 0 for site in base.facility_capacities)
         assert distributed.max_directional_carrier_kwh < base.max_directional_carrier_kwh
+
+    def test_starter_service_ignores_south_facilities(self):
+        outcome = self.model.outcome(TECHNOLOGIES["bemu"])
+        assert {site.stop_key for site in outcome.facility_capacities} == {"fort-collins", "denver"}
+
+    def test_electricity_demand_charge_uses_attenuated_peak(self):
+        no_storage = DecisionModel(replace(self.assumptions, peak_demand_attenuation_fraction=0)).outcome(TECHNOLOGIES["bemu"])
+        storage = DecisionModel(replace(self.assumptions, peak_demand_attenuation_fraction=0.75)).outcome(TECHNOLOGIES["bemu"])
+        assert storage.annual_energy_charge_musd == pytest.approx(no_storage.annual_energy_charge_musd)
+        assert storage.billed_peak_demand_kw == pytest.approx(no_storage.unattenuated_peak_demand_kw * 0.25)
+        assert storage.annual_demand_charge_musd == pytest.approx(no_storage.annual_demand_charge_musd * 0.25)
+
+    def test_demand_rate_changes_electric_but_not_diesel_cost(self):
+        low = replace(self.assumptions, electricity_demand_usd_per_kw_month=0)
+        high = replace(self.assumptions, electricity_demand_usd_per_kw_month=40)
+        assert DecisionModel(high).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd > DecisionModel(low).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd
+        assert DecisionModel(high).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd == pytest.approx(DecisionModel(low).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd)
+
+    @pytest.mark.parametrize("technology_key", ("bemu", "catenary"))
+    def test_electric_options_report_energy_and_demand_components(self, technology_key):
+        outcome = self.model.outcome(TECHNOLOGIES[technology_key])
+        assert outcome.annual_energy_charge_musd > 0
+        assert outcome.annual_demand_charge_musd > 0
+        assert outcome.unattenuated_peak_demand_kw > outcome.billed_peak_demand_kw > 0
+        assert {component.key for component in outcome.cost_components} >= {"energy", "demand"}
 
     def test_cost_range_contains_base(self):
         result = self.model.cost_range(TECHNOLOGIES["catenary"], {"real_discount_rate": (0.02, 0.07)}, {"infrastructure_musd_per_route_mile": (2.5, 7.0)})

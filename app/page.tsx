@@ -9,12 +9,12 @@ import {
   DEFAULT_ASSUMPTIONS,
   DEFAULT_STOPS,
   DEFAULT_TECHNOLOGIES,
-  FULL_ROUTE,
   Outcome,
   ServiceStop,
   Technology,
   calculateCostRanges,
   calculateOutcomes,
+  serviceRoute,
 } from "@/lib/model";
 
 type NumericKey = Exclude<keyof Assumptions, "servicePattern">;
@@ -31,13 +31,13 @@ type PresetDefinition = {
 
 const PRESETS: PresetDefinition[] = [
   {
-    id: "balanced",
-    name: "Balanced screening",
-    description: "Moderate service with broad demand, fleet, finance, and capital bounds.",
-    assumptions: { servicePattern: "through", totalTrains: 12, circuitsPerDay: 4, cars: 8, loadFactor: 0.5, movingSpeedMph: 65 },
+    id: "starter-schedule",
+    name: "Starter schedule",
+    description: "One train makes three Fort Collins–Denver round trips, matching the six attached departures.",
+    assumptions: { servicePattern: "starter", totalTrains: 1, roundTripsPerTrainPerDay: 3, cars: 8, loadFactor: 0.5, movingSpeedMph: 65 },
     bands: {
-      "a.totalTrains": { low: 9, high: 16 },
-      "a.circuitsPerDay": { low: 3, high: 6 },
+      "a.totalTrains": { low: 1, high: 3 },
+      "a.roundTripsPerTrainPerDay": { low: 2, high: 4 },
       "a.cars": { low: 6, high: 10 },
       "a.loadFactor": { low: 0.35, high: 0.7 },
       "a.movingSpeedMph": { low: 55, high: 75 },
@@ -54,6 +54,9 @@ const PRESETS: PresetDefinition[] = [
       "t.hydrogen.vehicleCostMUsdPerCar": { low: 0.5, high: 1.25 },
       "a.gridUpgradeUsdPerKw": { low: 250, high: 900 },
       "a.chargerEquipmentUsdPerKw": { low: 350, high: 1100 },
+      "a.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.16 },
+      "a.electricityDemandUsdPerKwMonth": { low: 5, high: 30 },
+      "a.peakDemandAttenuationFraction": { low: 0.2, high: 0.8 },
       "t.catenary.infrastructureMUsdPerRouteMile": { low: 3, high: 7 },
       "a.hydrogenSupplyUsdPerKgDay": { low: 900, high: 2800 },
       "s.denver.dwellMinutes": { low: 10, high: 35 },
@@ -63,9 +66,10 @@ const PRESETS: PresetDefinition[] = [
     id: "capital-stress",
     name: "Capital-cost stress",
     description: "Keeps operations at baseline and widens procurement and infrastructure costs.",
-    assumptions: { servicePattern: "dedicated", totalTrains: 14, circuitsPerDay: 4, cars: 8, loadFactor: 0.5, realDiscountRate: 0.05 },
+    assumptions: { servicePattern: "full", totalTrains: 12, roundTripsPerTrainPerDay: 1, cars: 8, loadFactor: 0.5, realDiscountRate: 0.05 },
     bands: {
-      "a.totalTrains": { low: 10, high: 18 },
+      "a.totalTrains": { low: 8, high: 16 },
+      "a.roundTripsPerTrainPerDay": { low: 1, high: 2 },
       "a.cars": { low: 6, high: 10 },
       "a.realDiscountRate": { low: 0.025, high: 0.08 },
       "t.diesel.fixedVehicleCostMUsd": { low: 3.5, high: 8 },
@@ -86,13 +90,13 @@ const PRESETS: PresetDefinition[] = [
     },
   },
   {
-    id: "high-service",
-    name: "High-service corridor",
-    description: "Tests a frequent, well-used service plan and the resulting fleet step changes.",
-    assumptions: { servicePattern: "through", totalTrains: 18, circuitsPerDay: 7, cars: 8, loadFactor: 0.65, movingSpeedMph: 70, serviceSpanHours: 18 },
+    id: "full-service",
+    name: "Full-service screening",
+    description: "Twelve trains each cover Fort Collins–Pueblo–Fort Collins once per day.",
+    assumptions: { servicePattern: "full", totalTrains: 12, roundTripsPerTrainPerDay: 1, cars: 8, loadFactor: 0.65, movingSpeedMph: 70, serviceSpanHours: 18 },
     bands: {
-      "a.totalTrains": { low: 14, high: 22 },
-      "a.circuitsPerDay": { low: 5, high: 9 },
+      "a.totalTrains": { low: 8, high: 18 },
+      "a.roundTripsPerTrainPerDay": { low: 1, high: 2 },
       "a.cars": { low: 6, high: 10 },
       "a.loadFactor": { low: 0.45, high: 0.8 },
       "a.movingSpeedMph": { low: 60, high: 80 },
@@ -104,11 +108,9 @@ const PRESETS: PresetDefinition[] = [
     id: "energy-volatility",
     name: "Energy-price volatility",
     description: "Centers higher carrier prices and bands fuel, power, efficiency, and auxiliary loads.",
-    assumptions: { servicePattern: "through", totalTrains: 14, circuitsPerDay: 5, cars: 8, loadFactor: 0.55, auxiliaryKwPerCar: 12 },
+    assumptions: { servicePattern: "full", totalTrains: 12, roundTripsPerTrainPerDay: 1, cars: 8, loadFactor: 0.55, auxiliaryKwPerCar: 12, electricityEnergyUsdPerKwh: 0.12, electricityDemandUsdPerKwMonth: 22, peakDemandAttenuationFraction: 0.4 },
     technologies: {
       diesel: { carrierCostPerUnit: 4.5 },
-      bemu: { carrierCostPerUnit: 0.12 },
-      catenary: { carrierCostPerUnit: 0.12 },
       hydrogen: { carrierCostPerUnit: 9 },
     },
     bands: {
@@ -116,10 +118,11 @@ const PRESETS: PresetDefinition[] = [
       "a.auxiliaryKwPerCar": { low: 7, high: 18 },
       "t.diesel.carrierCostPerUnit": { low: 3, high: 6.5 },
       "t.diesel.carrierToWheelEfficiency": { low: 0.25, high: 0.38 },
-      "t.bemu.carrierCostPerUnit": { low: 0.06, high: 0.2 },
       "t.bemu.carrierToWheelEfficiency": { low: 0.75, high: 0.9 },
-      "t.catenary.carrierCostPerUnit": { low: 0.06, high: 0.2 },
       "t.catenary.carrierToWheelEfficiency": { low: 0.82, high: 0.93 },
+      "a.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.2 },
+      "a.electricityDemandUsdPerKwMonth": { low: 5, high: 40 },
+      "a.peakDemandAttenuationFraction": { low: 0.1, high: 0.85 },
       "t.hydrogen.carrierCostPerUnit": { low: 4, high: 14 },
       "t.hydrogen.carrierToWheelEfficiency": { low: 0.38, high: 0.58 },
     },
@@ -403,6 +406,9 @@ export default function Home() {
   const leader = outcomes[0];
   const runnerUp = outcomes[1];
   const bemu = outcomes.find((item) => item.technology.key === "bemu")!;
+  const catenary = outcomes.find((item) => item.technology.key === "catenary")!;
+  const activeRoute = serviceRoute(assumptions.servicePattern);
+  const fleetRoundTripsPerDay = assumptions.totalTrains * assumptions.roundTripsPerTrainPerDay;
   const maxCost = Math.max(...outcomes.map((item) => item.equivalentAnnualCostMUsd));
 
   const update = (key: NumericKey, value: number) => {
@@ -472,7 +478,7 @@ export default function Home() {
           </p>
         </div>
         <div className="summary-metrics">
-          <Metric label="Fleet capacity screen" value={leader.fleetSufficient ? "Sufficient" : "Shortfall"} note={`${assumptions.totalTrains} specified · ${leader.requiredFleetSize} estimated need · ${assumptions.circuitsPerDay} fleet-wide circuits`} />
+          <Metric label="Schedule capacity screen" value={leader.fleetSufficient ? "Sufficient" : "Shortfall"} note={`${assumptions.totalTrains} specified · ${leader.requiredFleetSize} estimated need · ${fleetRoundTripsPerDay} fleet-wide round trips`} />
           <Metric label="Modeled riders / train" value={number.format(assumptions.cars * assumptions.seatsPerCar * assumptions.loadFactor)} note={`${assumptions.cars} cars at ${Math.round(assumptions.loadFactor * 100)}% load`} />
           <Metric
             label="Calculated BEMU battery"
@@ -517,7 +523,7 @@ export default function Home() {
             <p className="eyebrow">Site infrastructure</p>
             <h2 id="capacity-heading">Charging and fueling capacity</h2>
           </div>
-          <span className="capacity-context">{FULL_ROUTE.shortName}</span>
+          <span className="capacity-context">{activeRoute.shortName}</span>
         </div>
         <div className="capacity-columns">
           {[bemu, outcomes.find((item) => item.technology.key === "hydrogen")!].map((outcome) => (
@@ -534,6 +540,26 @@ export default function Home() {
           ))}
         </div>
         <p className="range-footnote">Capacity is a screening estimate based on energy replenished since the preceding enabled facility, stopover duration, scheduled arrivals, and modeled concurrency.</p>
+      </section>
+
+      <section className="capacity-pane" aria-labelledby="electricity-heading">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Electricity tariff</p>
+            <h2 id="electricity-heading">Energy and demand charges</h2>
+          </div>
+          <span className="capacity-context">{Math.round(assumptions.peakDemandAttenuationFraction * 100)}% peak attenuation</span>
+        </div>
+        <div className="capacity-columns">
+          {[bemu, catenary].map((outcome) => (
+            <article key={outcome.technology.key} className="capacity-technology">
+              <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{money(outcome.annualEnergyMUsd)} total annual electricity cost</p></div></div>
+              <div className="capacity-site"><div><strong>Energy charge</strong><span>{number.format(outcome.annualCarrierUnits)} kWh/year × ${assumptions.electricityEnergyUsdPerKwh.toFixed(2)}</span></div><b>{money(outcome.annualEnergyChargeMUsd)}</b></div>
+              <div className="capacity-site"><div><strong>Billing demand</strong><span>{number.format(outcome.unattenuatedPeakDemandKw)} kW before storage</span></div><div><strong>{number.format(outcome.billedPeakDemandKw)} kW</strong><span>after attenuation</span></div><b>{money(outcome.annualDemandChargeMUsd)}</b></div>
+            </article>
+          ))}
+        </div>
+        <p className="range-footnote">Annual demand charge = billed peak kW × ${number.format(assumptions.electricityDemandUsdPerKwMonth)}/kW-month × 12. Storage attenuation reduces billed peak only; storage capital, losses, and energy arbitrage are not included.</p>
       </section>
 
         </div>
@@ -568,25 +594,37 @@ export default function Home() {
           </details>
 
           <details open>
-            <summary>Full service plan <span>pattern + 4 inputs</span></summary>
+            <summary>Service plan <span>route + 4 inputs</span></summary>
             <div className="details-body">
               <label className="route-picker">
-                <span>Operating pattern</span>
+                <span>Service extent</span>
                 <select
                   value={assumptions.servicePattern}
                   onChange={(event) => {
                     setActivePreset(null);
-                    setAssumptions((current) => ({ ...current, servicePattern: event.target.value as Assumptions["servicePattern"] }));
+                    const servicePattern = event.target.value as Assumptions["servicePattern"];
+                    setAssumptions((current) => ({
+                      ...current,
+                      servicePattern,
+                      totalTrains: servicePattern === "starter" ? 1 : 12,
+                      roundTripsPerTrainPerDay: servicePattern === "starter" ? 3 : 1,
+                    }));
+                    setBands((current) => {
+                      const next = { ...current };
+                      delete next["a.totalTrains"];
+                      delete next["a.roundTripsPerTrainPerDay"];
+                      return next;
+                    });
                   }}
                 >
-                  <option value="through">All trains run Fort Collins–Pueblo</option>
-                  <option value="dedicated">Dedicated north and south trains</option>
+                  <option value="starter">Starter service · Fort Collins–Denver</option>
+                  <option value="full">Full service · Fort Collins–Pueblo</option>
                 </select>
-                <small>{assumptions.servicePattern === "through" ? "One full-corridor round trip per circuit" : "One north plus one south round trip per circuit; transfer in Denver"}</small>
+                <small>{assumptions.servicePattern === "starter" ? "One train and three round trips by default" : "Each train covers the full span once per day by default"}</small>
               </label>
-              <Slider label="Total trains" value={assumptions.totalTrains} min={4} max={30} step={1} digits={0} onChange={(v) => update("totalTrains", v)} {...bandProps("a.totalTrains")} />
-              <Slider label="Full-system circuits / day — fleet total" value={assumptions.circuitsPerDay} min={1} max={12} step={1} digits={0} onChange={(v) => update("circuitsPerDay", v)} {...bandProps("a.circuitsPerDay")} />
-              <p className="input-note">This is the total completed by the entire fleet—not by each train. {assumptions.servicePattern === "through" ? "One circuit is one Fort Collins–Pueblo–Fort Collins round trip." : "One circuit pairs a north round trip and a south round trip operated by dedicated train pools."}</p>
+              <Slider label="Total trains" value={assumptions.totalTrains} min={1} max={30} step={1} digits={0} onChange={(v) => update("totalTrains", v)} {...bandProps("a.totalTrains")} />
+              <Slider label="Round trips / train / day" value={assumptions.roundTripsPerTrainPerDay} min={1} max={6} step={1} digits={0} onChange={(v) => update("roundTripsPerTrainPerDay", v)} {...bandProps("a.roundTripsPerTrainPerDay")} />
+              <p className="input-note">{assumptions.servicePattern === "starter" ? "The attached schedule shows three southbound and three northbound departures: three complete Fort Collins–Denver–Fort Collins cycles, so the train starts and ends in Fort Collins." : "One round trip is Fort Collins–Pueblo–Fort Collins. Increase round trips per train to screen more intensive full-corridor service."}</p>
               <Slider label="Cars per train" value={assumptions.cars} min={2} max={10} step={1} digits={0} onChange={(v) => update("cars", v)} {...bandProps("a.cars")} />
               <Slider label="Passenger load" value={assumptions.loadFactor} min={0.1} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => update("loadFactor", v)} {...bandProps("a.loadFactor")} />
             </div>
@@ -630,9 +668,19 @@ export default function Home() {
           </details>
 
           <details open>
-            <summary>Charging & fueling stops <span>{stops.length} locations</span></summary>
+            <summary>Electricity tariff & storage <span>3 inputs</span></summary>
+            <div className="details-body">
+              <Slider label="Average electricity / kWh" value={assumptions.electricityEnergyUsdPerKwh} min={0.02} max={0.3} step={0.01} digits={2} unit=" $" onChange={(v) => update("electricityEnergyUsdPerKwh", v)} {...bandProps("a.electricityEnergyUsdPerKwh")} />
+              <Slider label="Demand rate / kW-month" value={assumptions.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(v) => update("electricityDemandUsdPerKwMonth", v)} {...bandProps("a.electricityDemandUsdPerKwMonth")} />
+              <Slider label="Peak attenuation from storage" value={assumptions.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => update("peakDemandAttenuationFraction", v)} {...bandProps("a.peakDemandAttenuationFraction")} />
+              <p className="input-note">Attenuation reduces billed peak demand for battery and catenary electricity. Storage capital, losses, and energy arbitrage are outside this screening calculation.</p>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Charging & fueling stops <span>{assumptions.servicePattern === "starter" ? 2 : stops.length} locations</span></summary>
             <div className="stop-config-list">
-              {stops.map((stop) => (
+              {stops.filter((stop) => assumptions.servicePattern === "full" || stop.key === "fort-collins" || stop.key === "denver").map((stop) => (
                 <div className="stop-config" key={stop.key}>
                   <div className="stop-config-heading"><strong>{stop.name}</strong><span>MP {stop.milepost}</span></div>
                   <div className="facility-toggles">
@@ -659,11 +707,12 @@ export default function Home() {
               <div className="details-body">
                 {tech.key === "diesel" && <p className="technology-note">Diesel-electric transmission is assumed; “Diesel locomotive” keeps the option label neutral until FRPR identifies specific equipment.</p>}
                 {(tech.key === "bemu" || tech.key === "hydrogen") && <p className="technology-note">Infrastructure capital is calculated from enabled sites, replenishment demand, stopover time, and the capacity-cost inputs above.</p>}
+                {(tech.key === "bemu" || tech.key === "catenary") && <p className="technology-note">Electricity energy and demand rates are shared tariff assumptions in the section above.</p>}
                 <Slider label="Fixed vehicle / train" value={tech.fixedVehicleCostMUsd} min={0} max={15} step={0.25} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedVehicleCostMUsd", v)} {...bandProps(`t.${tech.key}.fixedVehicleCostMUsd`)} />
                 <Slider label={tech.key === "bemu" ? "Non-battery vehicle / car" : "Vehicle / car"} value={tech.vehicleCostMUsdPerCar} min={0.2} max={3} step={0.05} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "vehicleCostMUsdPerCar", v)} {...bandProps(`t.${tech.key}.vehicleCostMUsdPerCar`)} />
                 {tech.key !== "bemu" && tech.key !== "hydrogen" && <Slider label="Fixed infrastructure" value={tech.fixedInfrastructureMUsd} min={0} max={100} step={1} digits={0} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedInfrastructureMUsd", v)} {...bandProps(`t.${tech.key}.fixedInfrastructureMUsd`)} />}
                 {tech.key !== "bemu" && tech.key !== "hydrogen" && <Slider label="Infrastructure / route-mi" value={tech.infrastructureMUsdPerRouteMile} min={0} max={10} step={0.1} digits={1} unit=" M$" onChange={(v) => updateTechnology(tech.key, "infrastructureMUsdPerRouteMile", v)} {...bandProps(`t.${tech.key}.infrastructureMUsdPerRouteMile`)} />}
-                <Slider label={`Carrier price / ${tech.carrierUnit}`} value={tech.carrierCostPerUnit} min={tech.key === "bemu" || tech.key === "catenary" ? 0.03 : 1} max={tech.key === "hydrogen" ? 20 : tech.key === "diesel" ? 8 : 0.3} step={tech.key === "bemu" || tech.key === "catenary" ? 0.01 : 0.25} digits={2} unit=" $" onChange={(v) => updateTechnology(tech.key, "carrierCostPerUnit", v)} {...bandProps(`t.${tech.key}.carrierCostPerUnit`)} />
+                {(tech.key === "diesel" || tech.key === "hydrogen") && <Slider label={`Carrier price / ${tech.carrierUnit}`} value={tech.carrierCostPerUnit} min={1} max={tech.key === "hydrogen" ? 20 : 8} step={0.25} digits={2} unit=" $" onChange={(v) => updateTechnology(tech.key, "carrierCostPerUnit", v)} {...bandProps(`t.${tech.key}.carrierCostPerUnit`)} />}
                 <Slider label="Carrier-to-wheel efficiency" value={tech.carrierToWheelEfficiency} min={0.2} max={0.95} step={0.01} displayFactor={100} digits={0} unit="%" onChange={(v) => updateTechnology(tech.key, "carrierToWheelEfficiency", v)} {...bandProps(`t.${tech.key}.carrierToWheelEfficiency`)} />
                 <Slider label="Regenerative recovery" value={tech.regenerativeEfficiency} min={0} max={0.95} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => updateTechnology(tech.key, "regenerativeEfficiency", v)} {...bandProps(`t.${tech.key}.regenerativeEfficiency`)} />
                 <Slider label="Maintenance / train-mi" value={tech.maintenanceUsdPerTrainMile} min={2} max={20} step={0.5} digits={1} unit=" $" onChange={(v) => updateTechnology(tech.key, "maintenanceUsdPerTrainMile", v)} {...bandProps(`t.${tech.key}.maintenanceUsdPerTrainMile`)} />
@@ -684,7 +733,7 @@ export default function Home() {
             <Metric label="Longest facility interval" value={`${number.format(bemu.maxDirectionalCarrierKwh)} kWh`} note="Matches usable capacity after convergence" />
             <Metric label="Battery mass" value={`${number.format(bemu.batteryMassTonnes ?? 0)} t`} note={`${assumptions.batterySpecificMassKgPerKwh.toFixed(2)} kg/kWh`} />
             <Metric label="Battery pack capital" value={money(bemu.batteryCapitalMUsd ?? 0)} note={`${assumptions.totalTrains} trains at $${number.format(assumptions.batteryCostUsdPerKwh)}/kWh`} />
-            <Metric label="Charging infrastructure" value={money(bemu.infrastructureCapitalMUsd)} note={`${bemu.indicativeChargerMw?.toFixed(1)} MW combined modeled peak`} />
+            <Metric label="Charging infrastructure" value={money(bemu.infrastructureCapitalMUsd)} note={`${bemu.indicativeChargerMw?.toFixed(1)} MW peak · ${(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW billed`} />
           </div>
           <p>Capacity is solved iteratively because battery capacity adds mass, which increases energy use and therefore changes the required battery. Enabled charging locations determine the longest unsupported interval; stopover duration determines charger power, not onboard capacity.</p>
         </div>
@@ -692,7 +741,7 @@ export default function Home() {
           <span>Battery calculation path</span>
           <code>charging locations → facility interval → battery kWh → battery mass → revised interval energy → convergence</code>
           <p>The converged battery is added to vehicle capital at the separate battery-pack $/kWh assumption. The vehicle-per-car input therefore represents the non-battery car cost.</p>
-          <p>Enabled sites require {bemu.indicativeChargerMw?.toFixed(1)} MW of combined modeled peak charging capacity.</p>
+          <p>Enabled sites require {bemu.indicativeChargerMw?.toFixed(1)} MW of combined modeled peak charging capacity; storage attenuation reduces the demand-billing peak to {(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW.</p>
         </div>
       </section>
       </div>

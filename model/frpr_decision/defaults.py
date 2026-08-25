@@ -1,4 +1,4 @@
-"""Illustrative full-corridor route, stop, and technology defaults."""
+"""Illustrative starter/full routes, stops, and technology defaults."""
 
 from .types import Route, Segment, ServiceStop, Technology
 
@@ -15,6 +15,8 @@ FULL_ROUTE = Route("full", "Fort Collins — Pueblo", (
     Segment("Colorado Springs–Fountain", 15, -488),
     Segment("Fountain–Pueblo", 35, -855),
 ))
+
+STARTER_ROUTE = Route("starter", "Fort Collins — Denver", FULL_ROUTE.segments[:5])
 
 DEFAULT_STOPS = (
     ServiceStop("fort-collins", "Fort Collins", 0, 30, True, True),

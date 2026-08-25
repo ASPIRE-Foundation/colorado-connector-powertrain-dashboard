@@ -1,4 +1,4 @@
-"""Typed inputs and outputs for the full-corridor FRPR screening model."""
+"""Typed inputs and outputs for the Colorado passenger-rail screening model."""
 
 from dataclasses import dataclass
 
@@ -59,9 +59,9 @@ class Technology:
 
 @dataclass(frozen=True)
 class Assumptions:
-    service_pattern: str = "through"
-    total_trains: int = 12
-    circuits_per_day: int = 4
+    service_pattern: str = "starter"
+    total_trains: int = 1
+    round_trips_per_train_per_day: int = 3
     cars: int = 8
     seats_per_car: int = 60
     tare_tonnes_per_car: float = 35.0
@@ -83,6 +83,9 @@ class Assumptions:
     charging_efficiency: float = 0.92
     grid_upgrade_usd_per_kw: float = 450.0
     charger_equipment_usd_per_kw: float = 650.0
+    electricity_energy_usd_per_kwh: float = 0.09
+    electricity_demand_usd_per_kw_month: float = 15.0
+    peak_demand_attenuation_fraction: float = 0.50
     hydrogen_supply_usd_per_kg_day: float = 1600.0
     hydrogen_dispenser_usd_per_kg_hour: float = 85000.0
 
@@ -123,6 +126,8 @@ class TechnologyOutcome:
     fleet_sufficient: bool
     initial_capital_musd: float
     infrastructure_capital_musd: float
+    annual_energy_charge_musd: float
+    annual_demand_charge_musd: float
     annual_operating_musd: float
     lifecycle_npv_musd: float
     equivalent_annual_cost_musd: float
@@ -137,6 +142,8 @@ class TechnologyOutcome:
     battery_mass_tonnes: float | None
     battery_capital_musd: float | None
     indicative_charger_mw: float | None
+    unattenuated_peak_demand_kw: float
+    billed_peak_demand_kw: float
     facility_capacities: tuple[FacilityCapacity, ...]
     cost_components: tuple[CostComponent, ...]
 
