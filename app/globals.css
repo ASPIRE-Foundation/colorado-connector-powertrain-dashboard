@@ -300,6 +300,7 @@ summary > span:last-of-type { margin-left: auto; color: var(--muted); font-size:
 .preset-button span { color: var(--muted); font-size: 0.63rem; line-height: 1.4; }
 .stop-config-list { display: grid; gap: 10px; padding: 12px; border-top: 1px solid var(--line); background: white; }
 .stop-config { display: grid; gap: 13px; padding: 12px; border: 1px solid #e0e4e1; border-radius: 9px; background: #fbfcfa; }
+.stop-config.catenary-config { border-color: #9fb9ae; background: #f1f7f4; box-shadow: inset 3px 0 var(--pine); }
 .stop-config-heading { display: flex; justify-content: space-between; gap: 10px; }
 .stop-config-heading strong { font-size: 0.72rem; }
 .stop-config-heading span { color: var(--muted); font-size: 0.62rem; }

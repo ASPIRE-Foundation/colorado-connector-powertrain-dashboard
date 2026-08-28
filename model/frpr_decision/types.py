@@ -35,6 +35,11 @@ class ServiceStop:
     dwell_minutes: float
     bemu_enabled: bool
     hydrogen_enabled: bool
+    is_catenary: bool
+    maximum_power_mw: float
+    electricity_energy_usd_per_kwh: float
+    electricity_demand_usd_per_kw_month: float
+    peak_demand_attenuation_fraction: float
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,8 @@ class Technology:
     infrastructure_maintenance_rate: float
     replacement_interval_years: int = 0
     replacement_share_of_vehicle_cost: float = 0.0
+    electricity_demand_usd_per_kw_month: float = 0.0
+    peak_demand_attenuation_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -83,9 +90,6 @@ class Assumptions:
     charging_efficiency: float = 0.92
     grid_upgrade_usd_per_kw: float = 450.0
     charger_equipment_usd_per_kw: float = 650.0
-    electricity_energy_usd_per_kwh: float = 0.09
-    electricity_demand_usd_per_kw_month: float = 15.0
-    peak_demand_attenuation_fraction: float = 0.50
     hydrogen_supply_usd_per_kg_day: float = 1600.0
     hydrogen_dispenser_usd_per_kg_hour: float = 85000.0
 
@@ -109,6 +113,12 @@ class FacilityCapacity:
     peak_rate: float
     peak_rate_unit: str
     capital_musd: float
+    annual_energy_kwh: float
+    energy_rate_usd_per_kwh: float
+    demand_rate_usd_per_kw_month: float
+    billed_peak_kw: float
+    maximum_power_kw: float | None
+    is_existing_infrastructure: bool
 
 
 @dataclass(frozen=True)

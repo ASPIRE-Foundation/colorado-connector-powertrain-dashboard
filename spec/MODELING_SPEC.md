@@ -124,12 +124,19 @@ required_trainsets = ceil(vehicle_hours_per_day / service_span / (1 - spare_rati
 
 This screen does not automatically overwrite the user's fleet assumption.
 
-### Stop-configured charging and fueling infrastructure
+### Stop-configured charging, existing catenary, and fueling infrastructure
 
 The user enables battery charging and hydrogen fueling independently at Fort Collins,
 Denver, Colorado Springs, and Pueblo and specifies a stopover at each location. For each
 operating round trip, the model sums energy from the preceding enabled facility and derives
 the replenishment required per arrival.
+
+An optional existing Denver–Westminster catenary stretch is modeled as an en-route BEMU
+energy source. Its defaults are 5 MW maximum connection capacity and 60 minutes connected.
+The model applies catenary power to traction while connected and then to any accumulated
+battery deficit. Actual draw is the lesser of the energy required and the configured
+power-by-time limit; it does not assume the maximum is always delivered. Because the
+infrastructure already exists, enabling this source adds no new BEMU charging capital.
 
 ```text
 concurrent_events = max(1, ceil(arrivals_per_day × stopover / service_span))
@@ -152,17 +159,24 @@ utility, hydrogen-production, storage, or station engineering designs.
 
 ### Electricity tariff and peak attenuation
 
-BEMU and catenary electricity cost is split into energy and demand charges:
+BEMU electricity rates are specified independently for every enabled charging source.
+Each source has a volume rate, demand rate, and peak-attenuation assumption. The existing
+Denver–Westminster catenary defaults to $0.01/kWh and $0/kW-month, reflecting the current
+screening assumption that BEMU use does not increase the facility's existing peak demand.
+The full-corridor catenary powertrain option retains a separate technology-level tariff.
+
+Electricity cost is split into energy and demand charges:
 
 ```text
-annual_energy_charge = annual_kwh × average_energy_rate_per_kwh
-billed_peak_kw = unattenuated_peak_kw × (1 - storage_attenuation_fraction)
-annual_demand_charge = billed_peak_kw × demand_rate_per_kw_month × 12
-annual_electricity_cost = annual_energy_charge + annual_demand_charge
+site_energy_charge = site_annual_kwh × site_energy_rate_per_kwh
+site_billed_peak_kw = site_actual_peak_kw × (1 - site_storage_attenuation_fraction)
+site_demand_charge = site_billed_peak_kw × site_demand_rate_per_kw_month × 12
+BEMU_annual_electricity_cost = sum(site_energy_charge + site_demand_charge)
 ```
 
-For BEMU, unattenuated peak is the sum of modeled charging-facility kW because demand
-charges are additive across the simplified site meters. For catenary, the model calculates
+For BEMU, energy is allocated to the source that supplies it, and demand charges are
+calculated independently before being summed across simplified site meters. For the
+full-corridor catenary option, the model calculates
 the maximum segment-average carrier kW for one train and multiplies it by an estimated
 number of simultaneously moving trains over the service span. This is a tariff-screening
 peak, not a traction-power simulation.
@@ -288,9 +302,9 @@ modules.
 - Service extent, per-train round trips, and fleet
 - Train and energy
 - Charging and fueling unit costs
-- Charging and fueling locations and stopovers
+- Charging and fueling locations, the existing catenary source, and connection times
 - Financial
-- Fuel, electricity tariff, storage attenuation, and emissions
+- Fuel, station-specific electricity tariffs, storage attenuation, and emissions
 - Technology capital and maintenance
 
 Each assumption should ultimately carry units, source, source date, and confidence rating.
@@ -352,8 +366,11 @@ forecasts or adopted FRPR scenarios.
     annual lifecycle cost.
 16. Starter service defaults to one train making three complete Fort Collins–Denver round
     trips and excludes south-of-Denver route and facility costs.
-17. BEMU and catenary electricity cost includes separate energy and demand charges;
+17. Every BEMU electricity source has separate energy, demand, and attenuation inputs;
     storage attenuation reduces billed peak without changing annual kWh.
+18. The optional Denver–Westminster catenary supplies no more than its configured MW-by-time
+    limit, reports actual rather than maximum draw, and defaults to $0.01/kWh with no demand
+    charge or new infrastructure capital.
 
 ## Recommended next increments
 

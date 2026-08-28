@@ -19,15 +19,16 @@ FULL_ROUTE = Route("full", "Fort Collins — Pueblo", (
 STARTER_ROUTE = Route("starter", "Fort Collins — Denver", FULL_ROUTE.segments[:5])
 
 DEFAULT_STOPS = (
-    ServiceStop("fort-collins", "Fort Collins", 0, 30, True, True),
-    ServiceStop("denver", "Denver", 65, 20, True, True),
-    ServiceStop("colorado-springs", "Colorado Springs", 135, 10, False, False),
-    ServiceStop("pueblo", "Pueblo", 185, 30, True, True),
+    ServiceStop("fort-collins", "Fort Collins", 0, 30, True, True, False, 0, 0.09, 15, 0.50),
+    ServiceStop("denver-westminster-catenary", "Denver–Westminster catenary", 57, 60, True, False, True, 5, 0.01, 0, 0),
+    ServiceStop("denver", "Denver", 65, 20, True, True, False, 0, 0.09, 15, 0.50),
+    ServiceStop("colorado-springs", "Colorado Springs", 135, 10, False, False, False, 0, 0.09, 15, 0.50),
+    ServiceStop("pueblo", "Pueblo", 185, 30, True, True, False, 0, 0.09, 15, 0.50),
 )
 
 TECHNOLOGIES = {
     "diesel": Technology("diesel", "Diesel locomotive", "gal", 40.7, 3.8, 12, 0.3, 0, 5, 0.75, 2, 0, 9, 0.03),
     "bemu": Technology("bemu", "Battery electric", "kWh", 1, 0.09, 0.473, 0.81, 0.7, 5, 0.75, 0, 0, 5.5, 0.03, 8, 0.2),
-    "catenary": Technology("catenary", "Catenary electric", "kWh", 1, 0.09, 0.473, 0.88, 0.85, 5, 0.75, 8, 4.5, 4.8, 0.02),
+    "catenary": Technology("catenary", "Catenary electric", "kWh", 1, 0.09, 0.473, 0.88, 0.85, 5, 0.75, 8, 4.5, 4.8, 0.02, 0, 0, 15, 0.50),
     "hydrogen": Technology("hydrogen", "Hydrogen fuel cell", "kg", 33.3, 7, 1, 0.48, 0.6, 5, 0.75, 0, 0, 7, 0.04, 10, 0.15),
 }

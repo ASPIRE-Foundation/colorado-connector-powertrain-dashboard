@@ -34,16 +34,19 @@ train plus $0.75M per car before batteries and infrastructure. Preset uncertaint
 also use the same per-train and per-car bounds for every option, avoiding an accidental
 technology preference in the common vehicle platform assumptions.
 
-Battery charging and hydrogen fueling sites are configured stop by stop. The model sizes
-each site from replenishment demand, stopover time, scheduled arrivals, and concurrency,
-then prices BEMU grid/charger capacity and hydrogen supply/dispensing capacity from
-editable unit costs. This replaces the former $14M and $30M blanket allowances.
+Battery charging and hydrogen fueling sites are configured stop by stop. An optional
+existing Denver–Westminster catenary stretch can also supply BEMU traction and charging
+energy, capped by editable MW capacity and connection time. The model uses actual power
+delivered rather than automatically charging at that cap. It sizes other sites from
+replenishment demand, stopover time, scheduled arrivals, and concurrency, then prices BEMU
+grid/charger capacity and hydrogen supply/dispensing capacity from editable unit costs.
+This replaces the former $14M and $30M blanket allowances.
 
-Electricity operating cost is separated into an average energy charge and a monthly
-demand charge. BEMU demand uses the sum of modeled charging-site peaks; catenary demand
-uses a screening estimate of concurrent train peak. An editable storage-attenuation
-percentage reduces billed kW without reducing kWh. Storage capital, losses, and energy
-arbitrage are intentionally excluded.
+Electricity operating cost is separated into energy and monthly demand charges at every
+BEMU source. Each source has its own rates and storage-attenuation assumption. The existing
+catenary defaults to $0.01/kWh and no demand charge; the full-corridor catenary option keeps
+its own technology-level tariff. Attenuation reduces billed kW without reducing kWh.
+Storage capital, losses, and energy arbitrage are intentionally excluded.
 
 Every numeric slider can also carry lower and upper estimates. Enabling a band adds two
 draggable endpoint handles around the darker base-value handle. A deterministic bounded

@@ -93,20 +93,63 @@ class TestDecisionModel:
 
     def test_starter_service_ignores_south_facilities(self):
         outcome = self.model.outcome(TECHNOLOGIES["bemu"])
-        assert {site.stop_key for site in outcome.facility_capacities} == {"fort-collins", "denver"}
+        assert {site.stop_key for site in outcome.facility_capacities} == {"fort-collins", "denver-westminster-catenary", "denver"}
+
+    def test_existing_catenary_defaults_and_power_cap(self):
+        catenary = next(stop for stop in DEFAULT_STOPS if stop.is_catenary)
+        outcome = self.model.outcome(TECHNOLOGIES["bemu"])
+        facility = next(site for site in outcome.facility_capacities if site.stop_key == catenary.key)
+        assert catenary.maximum_power_mw == 5
+        assert catenary.dwell_minutes == 60
+        assert catenary.electricity_energy_usd_per_kwh == 0.01
+        assert catenary.electricity_demand_usd_per_kw_month == 0
+        assert facility.peak_rate <= catenary.maximum_power_mw * 1000
+        assert facility.capital_musd == 0
+        assert facility.is_existing_infrastructure
+
+    def test_existing_catenary_reduces_indicated_battery(self):
+        enabled = self.model.outcome(TECHNOLOGIES["bemu"])
+        disabled_stops = tuple(replace(stop, bemu_enabled=False) if stop.is_catenary else stop for stop in DEFAULT_STOPS)
+        disabled = DecisionModel(self.assumptions, disabled_stops).outcome(TECHNOLOGIES["bemu"])
+        assert enabled.required_battery_kwh_per_car < disabled.required_battery_kwh_per_car
+
+    def test_catenary_power_limit_propagates_to_battery_size(self):
+        low_power_stops = tuple(replace(stop, maximum_power_mw=0.05) if stop.is_catenary else stop for stop in DEFAULT_STOPS)
+        low_power = DecisionModel(self.assumptions, low_power_stops).outcome(TECHNOLOGIES["bemu"])
+        base = self.model.outcome(TECHNOLOGIES["bemu"])
+        assert low_power.required_battery_kwh_per_car > base.required_battery_kwh_per_car
+
+    def test_catenary_cost_uses_actual_energy_and_has_no_demand_charge(self):
+        outcome = self.model.outcome(TECHNOLOGIES["bemu"])
+        facility = next(site for site in outcome.facility_capacities if site.is_existing_infrastructure)
+        assert facility.annual_energy_kwh > 0
+        assert facility.billed_peak_kw == pytest.approx(facility.peak_rate)
+        assert facility.billed_peak_kw * facility.demand_rate_usd_per_kw_month * 12 == 0
+
+    def test_bemu_energy_rates_are_source_specific(self):
+        expensive_fort_collins = tuple(
+            replace(stop, electricity_energy_usd_per_kwh=0.25) if stop.key == "fort-collins" else stop
+            for stop in DEFAULT_STOPS
+        )
+        base = self.model.outcome(TECHNOLOGIES["bemu"])
+        expensive = DecisionModel(self.assumptions, expensive_fort_collins).outcome(TECHNOLOGIES["bemu"])
+        assert expensive.annual_carrier_units == pytest.approx(base.annual_carrier_units)
+        assert expensive.annual_energy_charge_musd > base.annual_energy_charge_musd
 
     def test_electricity_demand_charge_uses_attenuated_peak(self):
-        no_storage = DecisionModel(replace(self.assumptions, peak_demand_attenuation_fraction=0)).outcome(TECHNOLOGIES["bemu"])
-        storage = DecisionModel(replace(self.assumptions, peak_demand_attenuation_fraction=0.75)).outcome(TECHNOLOGIES["bemu"])
+        no_storage_stops = tuple(replace(stop, peak_demand_attenuation_fraction=0) for stop in DEFAULT_STOPS)
+        storage_stops = tuple(replace(stop, peak_demand_attenuation_fraction=0.75) for stop in DEFAULT_STOPS)
+        no_storage = DecisionModel(self.assumptions, no_storage_stops).outcome(TECHNOLOGIES["bemu"])
+        storage = DecisionModel(self.assumptions, storage_stops).outcome(TECHNOLOGIES["bemu"])
         assert storage.annual_energy_charge_musd == pytest.approx(no_storage.annual_energy_charge_musd)
         assert storage.billed_peak_demand_kw == pytest.approx(no_storage.unattenuated_peak_demand_kw * 0.25)
         assert storage.annual_demand_charge_musd == pytest.approx(no_storage.annual_demand_charge_musd * 0.25)
 
     def test_demand_rate_changes_electric_but_not_diesel_cost(self):
-        low = replace(self.assumptions, electricity_demand_usd_per_kw_month=0)
-        high = replace(self.assumptions, electricity_demand_usd_per_kw_month=40)
-        assert DecisionModel(high).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd > DecisionModel(low).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd
-        assert DecisionModel(high).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd == pytest.approx(DecisionModel(low).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd)
+        low_stops = tuple(replace(stop, electricity_demand_usd_per_kw_month=0) for stop in DEFAULT_STOPS)
+        high_stops = tuple(replace(stop, electricity_demand_usd_per_kw_month=40) for stop in DEFAULT_STOPS)
+        assert DecisionModel(self.assumptions, high_stops).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd > DecisionModel(self.assumptions, low_stops).outcome(TECHNOLOGIES["bemu"]).annual_operating_musd
+        assert DecisionModel(self.assumptions, high_stops).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd == pytest.approx(DecisionModel(self.assumptions, low_stops).outcome(TECHNOLOGIES["diesel"]).annual_operating_musd)
 
     @pytest.mark.parametrize("technology_key", ("bemu", "catenary"))
     def test_electric_options_report_energy_and_demand_components(self, technology_key):

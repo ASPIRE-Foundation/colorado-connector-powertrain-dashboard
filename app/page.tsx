@@ -54,9 +54,13 @@ const PRESETS: PresetDefinition[] = [
       "t.hydrogen.vehicleCostMUsdPerCar": { low: 0.5, high: 1.25 },
       "a.gridUpgradeUsdPerKw": { low: 250, high: 900 },
       "a.chargerEquipmentUsdPerKw": { low: 350, high: 1100 },
-      "a.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.16 },
-      "a.electricityDemandUsdPerKwMonth": { low: 5, high: 30 },
-      "a.peakDemandAttenuationFraction": { low: 0.2, high: 0.8 },
+      "s.fort-collins.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.16 },
+      "s.fort-collins.electricityDemandUsdPerKwMonth": { low: 5, high: 30 },
+      "s.denver.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.16 },
+      "s.denver.electricityDemandUsdPerKwMonth": { low: 5, high: 30 },
+      "s.denver-westminster-catenary.maximumPowerMw": { low: 2, high: 10 },
+      "s.denver-westminster-catenary.dwellMinutes": { low: 30, high: 90 },
+      "s.denver-westminster-catenary.electricityEnergyUsdPerKwh": { low: 0.005, high: 0.05 },
       "t.catenary.infrastructureMUsdPerRouteMile": { low: 3, high: 7 },
       "a.hydrogenSupplyUsdPerKgDay": { low: 900, high: 2800 },
       "s.denver.dwellMinutes": { low: 10, high: 35 },
@@ -108,7 +112,7 @@ const PRESETS: PresetDefinition[] = [
     id: "energy-volatility",
     name: "Energy-price volatility",
     description: "Centers higher carrier prices and bands fuel, power, efficiency, and auxiliary loads.",
-    assumptions: { servicePattern: "full", totalTrains: 12, roundTripsPerTrainPerDay: 1, cars: 8, loadFactor: 0.55, auxiliaryKwPerCar: 12, electricityEnergyUsdPerKwh: 0.12, electricityDemandUsdPerKwMonth: 22, peakDemandAttenuationFraction: 0.4 },
+    assumptions: { servicePattern: "full", totalTrains: 12, roundTripsPerTrainPerDay: 1, cars: 8, loadFactor: 0.55, auxiliaryKwPerCar: 12 },
     technologies: {
       diesel: { carrierCostPerUnit: 4.5 },
       hydrogen: { carrierCostPerUnit: 9 },
@@ -120,9 +124,16 @@ const PRESETS: PresetDefinition[] = [
       "t.diesel.carrierToWheelEfficiency": { low: 0.25, high: 0.38 },
       "t.bemu.carrierToWheelEfficiency": { low: 0.75, high: 0.9 },
       "t.catenary.carrierToWheelEfficiency": { low: 0.82, high: 0.93 },
-      "a.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.2 },
-      "a.electricityDemandUsdPerKwMonth": { low: 5, high: 40 },
-      "a.peakDemandAttenuationFraction": { low: 0.1, high: 0.85 },
+      "s.fort-collins.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.2 },
+      "s.fort-collins.electricityDemandUsdPerKwMonth": { low: 5, high: 40 },
+      "s.fort-collins.peakDemandAttenuationFraction": { low: 0.1, high: 0.85 },
+      "s.denver.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.2 },
+      "s.denver.electricityDemandUsdPerKwMonth": { low: 5, high: 40 },
+      "s.denver.peakDemandAttenuationFraction": { low: 0.1, high: 0.85 },
+      "s.denver-westminster-catenary.electricityEnergyUsdPerKwh": { low: 0.005, high: 0.05 },
+      "t.catenary.carrierCostPerUnit": { low: 0.06, high: 0.2 },
+      "t.catenary.electricityDemandUsdPerKwMonth": { low: 5, high: 40 },
+      "t.catenary.peakDemandAttenuationFraction": { low: 0.1, high: 0.85 },
       "t.hydrogen.carrierCostPerUnit": { low: 4, high: 14 },
       "t.hydrogen.carrierToWheelEfficiency": { low: 0.38, high: 0.58 },
     },
@@ -558,9 +569,9 @@ export default function Home() {
               <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{money(outcome.infrastructureCapitalMUsd)} modeled infrastructure</p></div></div>
               {outcome.facilityCapacities.length ? outcome.facilityCapacities.map((facility) => (
                 <div className="capacity-site" key={facility.stopKey}>
-                  <div><strong>{facility.stopName}</strong><span>{facility.dwellMinutes}-minute stopover</span></div>
-                  <div><strong>{number.format(facility.capacity)} {facility.capacityUnit}</strong><span>{facility.peakRateUnit === facility.capacityUnit ? "site capacity" : `${number.format(facility.peakRate)} ${facility.peakRateUnit} peak`}</span></div>
-                  <b>{money(facility.capitalMUsd)}</b>
+                  <div><strong>{facility.stopName}</strong><span>{facility.dwellMinutes}-minute {facility.isExistingInfrastructure ? "connection" : "stopover"}</span></div>
+                  <div><strong>{number.format(facility.capacity)} {facility.capacityUnit}</strong><span>{facility.maximumPowerKw ? `${(facility.maximumPowerKw / 1000).toFixed(1)} MW maximum` : facility.peakRateUnit === facility.capacityUnit ? "modeled site capacity" : `${number.format(facility.peakRate)} ${facility.peakRateUnit} peak`}</span></div>
+                  <b>{facility.isExistingInfrastructure ? "Existing" : money(facility.capitalMUsd)}</b>
                 </div>
               )) : <p className="empty-capacity">No facilities enabled. The option is not operationally supported.</p>}
             </article>
@@ -575,18 +586,30 @@ export default function Home() {
             <p className="eyebrow">Electricity tariff</p>
             <h2 id="electricity-heading">Energy and demand charges</h2>
           </div>
-          <span className="capacity-context">{Math.round(assumptions.peakDemandAttenuationFraction * 100)}% peak attenuation</span>
+          <span className="capacity-context">Station-specific tariffs</span>
         </div>
         <div className="capacity-columns">
-          {[bemu, catenary].map((outcome) => (
-            <article key={outcome.technology.key} className="capacity-technology">
-              <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{money(outcome.annualEnergyMUsd)} total annual electricity cost</p></div></div>
-              <div className="capacity-site"><div><strong>Energy charge</strong><span>{number.format(outcome.annualCarrierUnits)} kWh/year × ${assumptions.electricityEnergyUsdPerKwh.toFixed(2)}</span></div><b>{money(outcome.annualEnergyChargeMUsd)}</b></div>
-              <div className="capacity-site"><div><strong>Billing demand</strong><span>{number.format(outcome.unattenuatedPeakDemandKw)} kW before storage</span></div><div><strong>{number.format(outcome.billedPeakDemandKw)} kW</strong><span>after attenuation</span></div><b>{money(outcome.annualDemandChargeMUsd)}</b></div>
-            </article>
-          ))}
+          <article className="capacity-technology">
+            <div className="capacity-title"><i style={{ background: bemu.technology.color }} /><div><h3>{bemu.technology.name}</h3><p>{money(bemu.annualEnergyMUsd)} across enabled sources</p></div></div>
+            {bemu.facilityCapacities.map((facility) => {
+              const siteEnergyMUsd = facility.annualEnergyKwh * facility.energyRateUsdPerKwh / 1e6;
+              const siteDemandMUsd = facility.billedPeakKw * facility.demandRateUsdPerKwMonth * 12 / 1e6;
+              return (
+                <div className="capacity-site" key={facility.stopKey}>
+                  <div><strong>{facility.stopName}</strong><span>{number.format(facility.annualEnergyKwh)} kWh/year × ${facility.energyRateUsdPerKwh.toFixed(3)}</span></div>
+                  <div><strong>{number.format(facility.peakRate)} kW actual</strong><span>{number.format(facility.billedPeakKw)} kW billed × ${facility.demandRateUsdPerKwMonth.toFixed(0)}/kW-month</span></div>
+                  <b>{money(siteEnergyMUsd + siteDemandMUsd)}</b>
+                </div>
+              );
+            })}
+          </article>
+          <article className="capacity-technology">
+            <div className="capacity-title"><i style={{ background: catenary.technology.color }} /><div><h3>{catenary.technology.name}</h3><p>{money(catenary.annualEnergyMUsd)} total annual electricity cost</p></div></div>
+            <div className="capacity-site"><div><strong>Corridor energy</strong><span>{number.format(catenary.annualCarrierUnits)} kWh/year × ${catenary.technology.carrierCostPerUnit.toFixed(2)}</span></div><b>{money(catenary.annualEnergyChargeMUsd)}</b></div>
+            <div className="capacity-site"><div><strong>Corridor billing demand</strong><span>{number.format(catenary.unattenuatedPeakDemandKw)} kW before attenuation</span></div><div><strong>{number.format(catenary.billedPeakDemandKw)} kW billed</strong><span>${catenary.technology.electricityDemandUsdPerKwMonth.toFixed(0)}/kW-month</span></div><b>{money(catenary.annualDemandChargeMUsd)}</b></div>
+          </article>
         </div>
-        <p className="range-footnote">Annual demand charge = billed peak kW × ${number.format(assumptions.electricityDemandUsdPerKwMonth)}/kW-month × 12. Storage attenuation reduces billed peak only; storage capital, losses, and energy arbitrage are not included.</p>
+        <p className="range-footnote">Each BEMU source uses its own volume rate, demand rate, and peak attenuation. The Denver–Westminster catenary is capped at its specified connection capacity; modeled cost uses actual delivered energy and power, not the maximum. Storage capital and losses remain outside this screen.</p>
       </section>
 
         </div>
@@ -695,26 +718,21 @@ export default function Home() {
           </details>
 
           <details open>
-            <summary>Electricity tariff & storage <span>3 inputs</span></summary>
-            <div className="details-body">
-              <Slider label="Average electricity / kWh" value={assumptions.electricityEnergyUsdPerKwh} min={0.02} max={0.3} step={0.01} digits={2} unit=" $" onChange={(v) => update("electricityEnergyUsdPerKwh", v)} {...bandProps("a.electricityEnergyUsdPerKwh")} />
-              <Slider label="Demand rate / kW-month" value={assumptions.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(v) => update("electricityDemandUsdPerKwMonth", v)} {...bandProps("a.electricityDemandUsdPerKwMonth")} />
-              <Slider label="Peak attenuation from storage" value={assumptions.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => update("peakDemandAttenuationFraction", v)} {...bandProps("a.peakDemandAttenuationFraction")} />
-              <p className="input-note">Attenuation reduces billed peak demand for battery and catenary electricity. Storage capital, losses, and energy arbitrage are outside this screening calculation.</p>
-            </div>
-          </details>
-
-          <details open>
-            <summary>Charging & fueling stops <span>{assumptions.servicePattern === "starter" ? 2 : stops.length} locations</span></summary>
+            <summary>Charging, catenary & fueling <span>{assumptions.servicePattern === "starter" ? 3 : stops.length} locations</span></summary>
             <div className="stop-config-list">
-              {stops.filter((stop) => assumptions.servicePattern === "full" || stop.key === "fort-collins" || stop.key === "denver").map((stop) => (
-                <div className="stop-config" key={stop.key}>
+              {stops.filter((stop) => assumptions.servicePattern === "full" || stop.key === "fort-collins" || stop.key === "denver" || stop.isCatenary).map((stop) => (
+                <div className={`stop-config ${stop.isCatenary ? "catenary-config" : ""}`} key={stop.key}>
                   <div className="stop-config-heading"><strong>{stop.name}</strong><span>MP {stop.milepost}</span></div>
                   <div className="facility-toggles">
-                    <label><input type="checkbox" checked={stop.bemuEnabled} onChange={(event) => updateStop(stop.key, { bemuEnabled: event.target.checked })} /> Battery charging</label>
-                    <label><input type="checkbox" checked={stop.hydrogenEnabled} onChange={(event) => updateStop(stop.key, { hydrogenEnabled: event.target.checked })} /> Hydrogen fueling</label>
+                    <label><input type="checkbox" checked={stop.bemuEnabled} onChange={(event) => updateStop(stop.key, { bemuEnabled: event.target.checked })} /> {stop.isCatenary ? "Use for BEMU charging" : "Battery charging"}</label>
+                    {!stop.isCatenary && <label><input type="checkbox" checked={stop.hydrogenEnabled} onChange={(event) => updateStop(stop.key, { hydrogenEnabled: event.target.checked })} /> Hydrogen fueling</label>}
                   </div>
-                  <Slider label="Stopover" value={stop.dwellMinutes} min={5} max={90} step={5} digits={0} unit=" min" onChange={(value) => updateStop(stop.key, { dwellMinutes: value })} {...bandProps(`s.${stop.key}.dwellMinutes`)} />
+                  {stop.isCatenary && <Slider label="Maximum connection capacity" value={stop.maximumPowerMw} min={0.05} max={15} step={0.05} digits={2} unit=" MW" onChange={(value) => updateStop(stop.key, { maximumPowerMw: value })} {...bandProps(`s.${stop.key}.maximumPowerMw`)} />}
+                  <Slider label={stop.isCatenary ? "Time connected" : "Stopover"} value={stop.dwellMinutes} min={5} max={120} step={5} digits={0} unit=" min" onChange={(value) => updateStop(stop.key, { dwellMinutes: value })} {...bandProps(`s.${stop.key}.dwellMinutes`)} />
+                  <Slider label="Energy rate / kWh" value={stop.electricityEnergyUsdPerKwh} min={0} max={0.3} step={0.005} digits={3} unit=" $" onChange={(value) => updateStop(stop.key, { electricityEnergyUsdPerKwh: value })} {...bandProps(`s.${stop.key}.electricityEnergyUsdPerKwh`)} />
+                  <Slider label="Demand rate / kW-month" value={stop.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(value) => updateStop(stop.key, { electricityDemandUsdPerKwMonth: value })} {...bandProps(`s.${stop.key}.electricityDemandUsdPerKwMonth`)} />
+                  <Slider label="Peak attenuation from storage" value={stop.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(value) => updateStop(stop.key, { peakDemandAttenuationFraction: value })} {...bandProps(`s.${stop.key}.peakDemandAttenuationFraction`)} />
+                  {stop.isCatenary && <p className="input-note">Existing infrastructure: no new BEMU charging capital is assigned. The model draws only the energy needed, up to the power and connection-time limit.</p>}
                 </div>
               ))}
             </div>
@@ -734,12 +752,16 @@ export default function Home() {
               <div className="details-body">
                 {tech.key === "diesel" && <p className="technology-note">Diesel-electric transmission is assumed; “Diesel locomotive” keeps the option label neutral until FRPR identifies specific equipment.</p>}
                 {(tech.key === "bemu" || tech.key === "hydrogen") && <p className="technology-note">Infrastructure capital is calculated from enabled sites, replenishment demand, stopover time, and the capacity-cost inputs above.</p>}
-                {(tech.key === "bemu" || tech.key === "catenary") && <p className="technology-note">Electricity energy and demand rates are shared tariff assumptions in the section above.</p>}
+                {tech.key === "bemu" && <p className="technology-note">Electricity energy, demand, and peak-attenuation assumptions are configured separately at each enabled source above.</p>}
+                {tech.key === "catenary" && <p className="technology-note">These tariff inputs apply to the full-corridor catenary option. The existing Denver–Westminster stretch used by BEMU is configured separately above.</p>}
                 <Slider label="Fixed vehicle / train" value={tech.fixedVehicleCostMUsd} min={0} max={15} step={0.25} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedVehicleCostMUsd", v)} {...bandProps(`t.${tech.key}.fixedVehicleCostMUsd`)} />
                 <Slider label={tech.key === "bemu" ? "Non-battery vehicle / car" : "Vehicle / car"} value={tech.vehicleCostMUsdPerCar} min={0.2} max={3} step={0.05} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "vehicleCostMUsdPerCar", v)} {...bandProps(`t.${tech.key}.vehicleCostMUsdPerCar`)} />
                 {tech.key !== "bemu" && tech.key !== "hydrogen" && <Slider label="Fixed infrastructure" value={tech.fixedInfrastructureMUsd} min={0} max={100} step={1} digits={0} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedInfrastructureMUsd", v)} {...bandProps(`t.${tech.key}.fixedInfrastructureMUsd`)} />}
                 {tech.key !== "bemu" && tech.key !== "hydrogen" && <Slider label="Infrastructure / route-mi" value={tech.infrastructureMUsdPerRouteMile} min={0} max={10} step={0.1} digits={1} unit=" M$" onChange={(v) => updateTechnology(tech.key, "infrastructureMUsdPerRouteMile", v)} {...bandProps(`t.${tech.key}.infrastructureMUsdPerRouteMile`)} />}
                 {(tech.key === "diesel" || tech.key === "hydrogen") && <Slider label={`Carrier price / ${tech.carrierUnit}`} value={tech.carrierCostPerUnit} min={1} max={tech.key === "hydrogen" ? 20 : 8} step={0.25} digits={2} unit=" $" onChange={(v) => updateTechnology(tech.key, "carrierCostPerUnit", v)} {...bandProps(`t.${tech.key}.carrierCostPerUnit`)} />}
+                {tech.key === "catenary" && <Slider label="Electricity energy / kWh" value={tech.carrierCostPerUnit} min={0} max={0.3} step={0.005} digits={3} unit=" $" onChange={(v) => updateTechnology(tech.key, "carrierCostPerUnit", v)} {...bandProps(`t.${tech.key}.carrierCostPerUnit`)} />}
+                {tech.key === "catenary" && <Slider label="Demand rate / kW-month" value={tech.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(v) => updateTechnology(tech.key, "electricityDemandUsdPerKwMonth", v)} {...bandProps(`t.${tech.key}.electricityDemandUsdPerKwMonth`)} />}
+                {tech.key === "catenary" && <Slider label="Peak attenuation" value={tech.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => updateTechnology(tech.key, "peakDemandAttenuationFraction", v)} {...bandProps(`t.${tech.key}.peakDemandAttenuationFraction`)} />}
                 <Slider label="Carrier-to-wheel efficiency" value={tech.carrierToWheelEfficiency} min={0.2} max={0.95} step={0.01} displayFactor={100} digits={0} unit="%" onChange={(v) => updateTechnology(tech.key, "carrierToWheelEfficiency", v)} {...bandProps(`t.${tech.key}.carrierToWheelEfficiency`)} />
                 <Slider label="Regenerative recovery" value={tech.regenerativeEfficiency} min={0} max={0.95} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => updateTechnology(tech.key, "regenerativeEfficiency", v)} {...bandProps(`t.${tech.key}.regenerativeEfficiency`)} />
                 <Slider label="Maintenance / train-mi" value={tech.maintenanceUsdPerTrainMile} min={2} max={20} step={0.5} digits={1} unit=" $" onChange={(v) => updateTechnology(tech.key, "maintenanceUsdPerTrainMile", v)} {...bandProps(`t.${tech.key}.maintenanceUsdPerTrainMile`)} />
@@ -762,13 +784,13 @@ export default function Home() {
             <Metric label="Battery pack capital" value={money(bemu.batteryCapitalMUsd ?? 0)} note={`${assumptions.totalTrains} trains at $${number.format(assumptions.batteryCostUsdPerKwh)}/kWh`} />
             <Metric label="Charging infrastructure" value={money(bemu.infrastructureCapitalMUsd)} note={`${bemu.indicativeChargerMw?.toFixed(1)} MW peak · ${(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW billed`} />
           </div>
-          <p>Capacity is solved iteratively because battery capacity adds mass, which increases energy use and therefore changes the required battery. Enabled charging locations determine the longest unsupported interval; stopover duration determines charger power, not onboard capacity.</p>
+          <p>Capacity is solved iteratively because battery capacity adds mass, which increases energy use and therefore changes the required battery. Station chargers can replenish the accumulated deficit; the existing catenary offsets energy only up to its configured MW-by-time limit.</p>
         </div>
         <div className="formula-card">
           <span>Battery calculation path</span>
-          <code>charging locations → facility interval → battery kWh → battery mass → revised interval energy → convergence</code>
+          <code>charging sources + power limits → battery deficit → battery kWh → battery mass → revised energy → convergence</code>
           <p>The converged battery is added to vehicle capital at the separate battery-pack $/kWh assumption. The vehicle-per-car input therefore represents the non-battery car cost.</p>
-          <p>Enabled sites require {bemu.indicativeChargerMw?.toFixed(1)} MW of combined modeled peak charging capacity; storage attenuation reduces the demand-billing peak to {(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW.</p>
+          <p>Enabled sources deliver {bemu.indicativeChargerMw?.toFixed(1)} MW of combined modeled peak power. Site-specific attenuation reduces the summed demand-billing peak to {(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW.</p>
         </div>
       </section>
       </div>
