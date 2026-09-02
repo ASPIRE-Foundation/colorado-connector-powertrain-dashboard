@@ -38,11 +38,14 @@ technology preference in the common vehicle platform assumptions.
 
 Battery charging and hydrogen fueling sites are configured stop by stop. An optional
 existing Castle Pines–Westminster catenary zone can also supply BEMU traction and charging
-energy, capped by editable MW capacity. Connection time is calculated from travel under
-wire plus the Denver stop, rather than entered independently. The model sends catenary
+energy, capped by editable MW capacity. Connection time is calculated from direction-specific
+timetable legs plus the applicable Denver layover or through dwell, rather than entered
+independently. The starter defaults reproduce the published 108-minute schedule in both
+directions and its 24/222/24-minute Denver layovers; southern timings are visibly marked
+planning estimates. The model sends catenary
 power to concurrent traction first and battery charging second, and uses actual power
 delivered rather than automatically charging at the cap. It sizes other sites from
-replenishment demand, stopover time, scheduled arrivals, and concurrency, then prices BEMU
+replenishment demand, timetable-derived dwell, scheduled arrivals, and concurrency, then prices BEMU
 grid/charger capacity and hydrogen supply/dispensing capacity from editable unit costs.
 This replaces the former $14M and $30M blanket allowances.
 

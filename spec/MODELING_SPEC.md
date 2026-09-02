@@ -31,7 +31,8 @@ design model.
 ## MVP user story
 
 An executive selects starter or full service and changes fleet size, round trips per train,
-car count, passenger load, speed, asset life, discount rate, fuel and electricity prices,
+car count, passenger load, direction-specific timetable legs, layovers, equivalent aerodynamic
+speed, asset life, discount rate, fuel and electricity prices,
 demand charges, storage attenuation, and technology costs. Any slider can be
 expanded into lower/base/upper estimates. The comparison immediately shows which option
 has the lowest equivalent annual lifecycle cost, its screening range, and why. The user
@@ -46,11 +47,13 @@ The route is represented as an ordered list of station-to-station segments with:
 
 - distance;
 - elevation change; and
+- southbound and northbound scheduled minutes; and
 - one stop-to-stop acceleration/braking event.
 
 The reverse direction reverses the segments and elevation signs. Initial Colorado route
 data are inherited from the first-cut repository and remain explicitly marked as
-placeholder data.
+placeholder data. Fort Collins–Denver timing defaults reproduce the attached 108-minute
+schedule in both directions. Denver–Pueblo values are explicitly labeled planning estimates.
 
 The service-extent choice is:
 
@@ -79,7 +82,8 @@ illustrative eight-car starting value is the FRPR plan.
 
 ### Segment energy
 
-For distance `d`, elevation change `dh`, representative moving speed `v`, mass `m`,
+For distance `d`, elevation change `dh`, equivalent aerodynamic speed `v`, scheduled leg
+duration `t`, mass `m`,
 rolling coefficient `Crr`, air density `rho`, and drag area `CdA`:
 
 ```text
@@ -89,7 +93,7 @@ climb_work = m × g × max(dh, 0)
 descent_energy_available = m × g × max(-dh, 0)
 acceleration_work = 0.5 × m × v²
 braking_energy_available = acceleration_work
-auxiliary_energy = cars × auxiliary_kw_per_car × segment_time
+auxiliary_energy = cars × auxiliary_kw_per_car × t
 
 positive_wheel_energy = rolling + aero + climb + acceleration
 recoverable_wheel_energy = descent + braking
@@ -115,7 +119,9 @@ is Fort Collins–Pueblo–Fort Collins. Because the service rate is per train, 
 fleet increases vehicle capital and scheduled operations together.
 
 The specified fleet drives vehicle capital. A separate capacity screen estimates the
-minimum fleet needed from moving time, configured stopovers, service span, and spare ratio:
+minimum fleet needed from scheduled leg times, applicable through dwells and terminal
+turns, service span, and spare ratio. Overnight layover is available for charging but is
+excluded from the same-day operating span:
 
 ```text
 vehicle_hours_per_day = fleet_round_trips_per_day × round_trip_time
@@ -127,14 +133,15 @@ This screen does not automatically overwrite the user's fleet assumption.
 ### Stop-configured charging, existing catenary, and fueling infrastructure
 
 The user enables battery charging and hydrogen fueling independently at Fort Collins,
-Denver, Colorado Springs, and Pueblo and specifies a stopover at each location. For each
+Denver, Colorado Springs, and Pueblo. Charging and fueling duration comes from the active
+train-day timetable rather than a duplicate facility stopover input. For each
 operating round trip, the model sums energy from the preceding enabled facility and derives
 the replenishment required per arrival.
 
 An optional existing Castle Pines–Westminster catenary zone is modeled as an en-route BEMU
 energy source. Its default maximum connection capacity is 5 MW. Connected time is not an
-independent assumption: the model derives it from distance and moving speed for every
-under-wire leg, plus dwell at Denver (and, as the stop model expands, any other stop inside
+independent assumption: the model derives it from direction-specific scheduled minutes for
+every under-wire leg, plus the applicable Denver layover or through dwell (and, as the stop model expands, any other stop inside
 the zone). Starter service therefore treats Westminster–Denver–Westminster and the Denver
 dwell as one continuous connected interval. Full service uses one Castle Pines–Westminster
 connected interval in each direction. The placeholder route geometry places the Castle
@@ -150,9 +157,9 @@ the separate Denver charger does not also reset the battery during the same stop
 the infrastructure already exists, enabling this source adds no new BEMU charging capital.
 
 ```text
-catenary_connected_time = sum(under_wire_distance / moving_speed) + in_zone_dwell
-catenary_concurrency = max(1, ceil(fleet_round_trips_per_day
-                                    × connected_time_per_circuit / service_span))
+catenary_connected_time = sum(under_wire_scheduled_minutes) + in_zone_dwell
+catenary_concurrency = max(1, ceil(total_trains
+                                    × connected_time_per_train_day / service_span))
 catenary_power_per_train = maximum_catenary_kw / catenary_concurrency
 
 direct_catenary_kwh = min(under_wire_traction_kwh,
@@ -316,8 +323,8 @@ guess battery kWh/car
 
 The dashboard displays calculated capacity per car, train-level installed and usable
 capacity, longest-interval energy, battery mass, battery pack capital, and charging
-infrastructure capital. Enabled facility locations affect onboard capacity; stopover
-duration affects the charging power needed to replenish it.
+infrastructure capital. Enabled facility locations affect onboard capacity; timetable-derived
+dwell duration affects the charging power needed to replenish it.
 
 The facility-interval calculation is cyclic. When no conventional station charger is
 enabled, the model begins immediately after an existing-catenary energy event and carries
@@ -349,6 +356,7 @@ modules.
 ### Expandable assumption suite
 
 - Service extent, per-train round trips, and fleet
+- Direction-specific timetable legs, published/estimated provenance, and train-day layovers
 - Train and energy
 - Charging and fueling unit costs
 - Charging and fueling locations and the existing catenary source; catenary connection time is derived
@@ -425,7 +433,7 @@ forecasts or adopted FRPR scenarios.
 17. Every BEMU electricity source has separate energy, demand, and attenuation inputs;
     storage attenuation reduces billed peak without changing annual kWh.
 18. The optional Castle Pines–Westminster catenary supplies no more than its configured
-    capacity over distance/speed-derived travel time plus in-zone dwell, reports actual
+    capacity over direction-specific scheduled travel time plus in-zone dwell, reports actual
     rather than maximum draw, serves traction before battery charging, and defaults to
     $0.01/kWh with no demand charge or new infrastructure capital.
 19. Disabling a charging location cannot reduce indicated battery capacity by implicitly
@@ -437,6 +445,11 @@ forecasts or adopted FRPR scenarios.
 21. Expanding the representative-day waterfall defaults to a fit-to-width presentation
     view with no horizontal overflow; detailed and vertical alternatives remain available,
     and printing the expanded view isolates the chart in landscape orientation.
+22. Starter timing defaults total 108 minutes in each direction and reproduce the three
+    published Denver layovers (24, 222, and 24 minutes); the waterfall therefore shows
+    distinct catenary-connected intervals rather than cloning one nominal circuit.
+23. Changing equivalent aerodynamic speed changes aerodynamic and acceleration energy but
+    does not change scheduled leg, dwell, fleet, or catenary-connected time.
 
 ## Recommended next increments
 
@@ -447,4 +460,5 @@ forecasts or adopted FRPR scenarios.
    timestep model over multiple duty cycles.
 4. Replace illustrative presets with sourced, internally consistent planning cases and
    add break-even solvers before considering Monte Carlo analysis.
-5. Add timetable, charger-concurrency, utility-tariff, and replacement/degradation modules.
+5. Replace the planning-estimate southern timetable with a sourced operating plan and add
+   explicit train-meet/conflict and charger-concurrency scheduling.

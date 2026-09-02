@@ -3,21 +3,23 @@
 from .types import Route, Segment, ServiceStop, Technology
 
 FULL_ROUTE = Route("full", "Fort Collins — Pueblo", (
-    Segment("Fort Collins–Loveland", 15, -21),
-    Segment("Loveland–Longmont", 18, -3),
-    Segment("Longmont–Broomfield", 18, 441),
-    Segment("Broomfield–Westminster", 6, -40),
-    Segment("Westminster–Denver", 8, -183),
-    Segment("Denver–Littleton", 10, 165),
-    Segment("Littleton–Castle Pines", 15, 647),
-    Segment("Castle Pines–Castle Rock", 5, 215),
-    Segment("Castle Rock–Monument", 20, 733),
-    Segment("Monument–Colorado Springs", 20, -922),
-    Segment("Colorado Springs–Fountain", 15, -488),
-    Segment("Fountain–Pueblo", 35, -855),
+    Segment("Fort Collins–Loveland", 15, -21, 17, 14),
+    Segment("Loveland–Longmont", 18, -3, 22, 22),
+    Segment("Longmont–Boulder", 8, 350, 14, 15),
+    Segment("Boulder–Louisville", 5, -75, 15, 14),
+    Segment("Louisville–Broomfield", 5, 166, 10, 11),
+    Segment("Broomfield–Westminster", 6, -40, 14, 13),
+    Segment("Westminster–Denver", 8, -183, 16, 19),
+    Segment("Denver–Littleton", 10, 165, 15, 15),
+    Segment("Littleton–Castle Pines", 15, 647, 25, 25),
+    Segment("Castle Pines–Castle Rock", 5, 215, 10, 10),
+    Segment("Castle Rock–Monument", 20, 733, 30, 30),
+    Segment("Monument–Colorado Springs", 20, -922, 30, 30),
+    Segment("Colorado Springs–Fountain", 15, -488, 20, 20),
+    Segment("Fountain–Pueblo", 35, -855, 50, 50),
 ))
 
-STARTER_ROUTE = Route("starter", "Fort Collins — Denver", FULL_ROUTE.segments[:5])
+STARTER_ROUTE = Route("starter", "Fort Collins — Denver", FULL_ROUTE.segments[:7])
 
 DEFAULT_STOPS = (
     ServiceStop("fort-collins", "Fort Collins", 0, 30, True, True, False, 0, 0.09, 15, 0.50),

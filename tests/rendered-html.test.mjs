@@ -37,7 +37,7 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Checked sources are required/);
   assert.match(html, /Castle Pines–Westminster catenary/);
   assert.match(html, /Maximum connection capacity/);
-  assert.match(html, /Connected time is calculated/);
+  assert.match(html, /Connected time uses the direction-specific/);
   assert.match(html, /Energy rate \/ kWh/);
   assert.match(html, /Demand rate \/ kW-month/);
   assert.match(html, /actual delivered energy and power/);
@@ -47,6 +47,11 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Battery specific mass/);
   assert.match(html, /Charging and fueling capacity/);
   assert.match(html, /Representative BEMU train-day energy flow/);
+  assert.match(html, /Timetable &amp; dwell/);
+  assert.match(html, /Published timetable/);
+  assert.match(html, /Representative train-day/);
+  assert.match(html, /Equivalent aerodynamic speed/);
+  assert.match(html, /Denver layover · circuit 2/);
   assert.match(html, /Expand chart/);
   assert.match(html, /Fit to width/);
   assert.match(html, /Detailed scroll/);

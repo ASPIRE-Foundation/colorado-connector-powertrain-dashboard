@@ -281,6 +281,24 @@ summary > span:last-of-type { margin-left: auto; color: var(--muted); font-size:
 .assumptions-sidebar details { background: #fbfbf7; }
 .assumptions-sidebar summary { padding: 13px 12px; font-size: 0.76rem; }
 .assumptions-sidebar .details-body { grid-template-columns: 1fr; gap: 20px; padding: 16px 12px 18px; }
+.timetable-body { display: grid; gap: 14px; padding: 14px 12px 18px; border-top: 1px solid var(--line); background: white; }
+.timetable-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--line); }
+.timetable-summary div { display: grid; gap: 3px; padding: 8px 7px; background: #f8faf8; }
+.timetable-summary span { color: var(--muted); font-size: 0.52rem; line-height: 1.2; }
+.timetable-summary strong { font-size: 0.69rem; }
+.timetable-leg-list { display: grid; gap: 8px; }
+.timetable-leg { display: grid; gap: 12px; padding: 11px 10px 12px; border: 1px solid #e2e6e3; border-radius: 8px; background: #fbfcfa; }
+.timetable-leg-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.timetable-leg-heading strong { font-size: 0.66rem; }
+.timetable-leg-heading span { padding: 3px 5px; border-radius: 4px; font-size: 0.49rem; font-weight: 720; white-space: nowrap; }
+.timetable-leg-heading .published { background: #e4f0eb; color: var(--pine-dark); }
+.timetable-leg-heading .estimated { background: #f8eed8; color: #765c24; }
+.timetable-directions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.timetable-directions .slider-field { gap: 7px; }
+.timetable-directions .slider-label { display: grid; gap: 3px; }
+.timetable-directions .slider-label output { font-size: 0.72rem; }
+.timetable-layovers { display: grid; gap: 17px; padding-top: 4px; }
+.timetable-layovers h3 { padding-bottom: 8px; border-bottom: 1px solid var(--line); color: #44504b; font-size: 0.7rem; }
 .assumptions-sidebar .technology-note { font-size: 0.64rem; }
 .preset-list { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: white; }
 .preset-button {

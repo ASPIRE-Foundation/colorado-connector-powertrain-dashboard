@@ -1,4 +1,21 @@
-export type Segment = { name: string; distanceMi: number; elevationChangeFt: number };
+export type LegKey =
+  | "fort-collins-loveland"
+  | "loveland-longmont"
+  | "longmont-boulder"
+  | "boulder-louisville"
+  | "louisville-broomfield"
+  | "broomfield-westminster"
+  | "westminster-denver"
+  | "denver-littleton"
+  | "littleton-castle-pines"
+  | "castle-pines-castle-rock"
+  | "castle-rock-monument"
+  | "monument-colorado-springs"
+  | "colorado-springs-fountain"
+  | "fountain-pueblo";
+
+export type DirectionalMinutes = { southbound: number; northbound: number };
+export type Segment = { key: LegKey; name: string; distanceMi: number; elevationChangeFt: number; reverse?: boolean };
 export type ServicePattern = "starter" | "full";
 
 export type Route = {
@@ -55,6 +72,17 @@ export type Assumptions = {
   tareTonnesPerCar: number;
   loadFactor: number;
   passengerMassKg: number;
+  legMinutes: Record<LegKey, DirectionalMinutes>;
+  starterDenverLayover1Minutes: number;
+  starterDenverLayover2Minutes: number;
+  starterDenverLayover3Minutes: number;
+  starterFortCollinsTurn1Minutes: number;
+  starterFortCollinsTurn2Minutes: number;
+  starterOvernightMinutes: number;
+  fullDenverDwellMinutes: number;
+  fullColoradoSpringsDwellMinutes: number;
+  fullPuebloLayoverMinutes: number;
+  fullFortCollinsLayoverMinutes: number;
   movingSpeedMph: number;
   crr: number;
   airDensityKgM3: number;
@@ -155,7 +183,24 @@ export type CostRange = { technology: Technology; lowMUsdPerYear: number; baseMU
 
 type RoutePoint = ServiceStop["key"] | "castle-pines-catenary-boundary";
 
-const segment = (name: string, distanceMi: number, elevationChangeFt: number): Segment => ({ name, distanceMi, elevationChangeFt });
+const segment = (key: LegKey, name: string, distanceMi: number, elevationChangeFt: number): Segment => ({ key, name, distanceMi, elevationChangeFt });
+
+export const DEFAULT_LEG_MINUTES: Record<LegKey, DirectionalMinutes> = {
+  "fort-collins-loveland": { southbound: 17, northbound: 14 },
+  "loveland-longmont": { southbound: 22, northbound: 22 },
+  "longmont-boulder": { southbound: 14, northbound: 15 },
+  "boulder-louisville": { southbound: 15, northbound: 14 },
+  "louisville-broomfield": { southbound: 10, northbound: 11 },
+  "broomfield-westminster": { southbound: 14, northbound: 13 },
+  "westminster-denver": { southbound: 16, northbound: 19 },
+  "denver-littleton": { southbound: 15, northbound: 15 },
+  "littleton-castle-pines": { southbound: 25, northbound: 25 },
+  "castle-pines-castle-rock": { southbound: 10, northbound: 10 },
+  "castle-rock-monument": { southbound: 30, northbound: 30 },
+  "monument-colorado-springs": { southbound: 30, northbound: 30 },
+  "colorado-springs-fountain": { southbound: 20, northbound: 20 },
+  "fountain-pueblo": { southbound: 50, northbound: 50 },
+};
 
 export const FULL_ROUTE: Route = {
   key: "full",
@@ -163,18 +208,20 @@ export const FULL_ROUTE: Route = {
   shortName: "Full corridor · 185 mi",
   status: "Placeholder alignment and station-average grades",
   segments: [
-    segment("Fort Collins–Loveland", 15, -21),
-    segment("Loveland–Longmont", 18, -3),
-    segment("Longmont–Broomfield", 18, 441),
-    segment("Broomfield–Westminster", 6, -40),
-    segment("Westminster–Denver", 8, -183),
-    segment("Denver–Littleton", 10, 165),
-    segment("Littleton–Castle Pines", 15, 647),
-    segment("Castle Pines–Castle Rock", 5, 215),
-    segment("Castle Rock–Monument", 20, 733),
-    segment("Monument–Colorado Springs", 20, -922),
-    segment("Colorado Springs–Fountain", 15, -488),
-    segment("Fountain–Pueblo", 35, -855),
+    segment("fort-collins-loveland", "Fort Collins–Loveland", 15, -21),
+    segment("loveland-longmont", "Loveland–Longmont", 18, -3),
+    segment("longmont-boulder", "Longmont–Boulder", 8, 350),
+    segment("boulder-louisville", "Boulder–Louisville", 5, -75),
+    segment("louisville-broomfield", "Louisville–Broomfield", 5, 166),
+    segment("broomfield-westminster", "Broomfield–Westminster", 6, -40),
+    segment("westminster-denver", "Westminster–Denver", 8, -183),
+    segment("denver-littleton", "Denver–Littleton", 10, 165),
+    segment("littleton-castle-pines", "Littleton–Castle Pines", 15, 647),
+    segment("castle-pines-castle-rock", "Castle Pines–Castle Rock", 5, 215),
+    segment("castle-rock-monument", "Castle Rock–Monument", 20, 733),
+    segment("monument-colorado-springs", "Monument–Colorado Springs", 20, -922),
+    segment("colorado-springs-fountain", "Colorado Springs–Fountain", 15, -488),
+    segment("fountain-pueblo", "Fountain–Pueblo", 35, -855),
   ],
 };
 
@@ -183,8 +230,14 @@ export const STARTER_ROUTE: Route = {
   name: "Fort Collins — Denver",
   shortName: "Starter corridor · 65 mi",
   status: "Illustrative joint-service schedule and placeholder alignment",
-  segments: FULL_ROUTE.segments.slice(0, 5),
+  segments: FULL_ROUTE.segments.slice(0, 7),
 };
+
+export const SCHEDULE_LEGS = FULL_ROUTE.segments.map((item, index) => ({
+  key: item.key,
+  name: item.name,
+  source: index < STARTER_ROUTE.segments.length ? "Published timetable" : "Planning estimate",
+}));
 
 export const DEFAULT_STOPS: ServiceStop[] = [
   { key: "fort-collins", name: "Fort Collins", milepost: 0, dwellMinutes: 30, bemuEnabled: true, hydrogenEnabled: true, isCatenary: false, maximumPowerMw: 0, electricityEnergyUsdPerKwh: 0.09, electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5 },
@@ -196,7 +249,13 @@ export const DEFAULT_STOPS: ServiceStop[] = [
 
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
   servicePattern: "starter", totalTrains: 1, roundTripsPerTrainPerDay: 3, cars: 8, seatsPerCar: 60,
-  tareTonnesPerCar: 35, loadFactor: 0.5, passengerMassKg: 80, movingSpeedMph: 65,
+  tareTonnesPerCar: 35, loadFactor: 0.5, passengerMassKg: 80,
+  legMinutes: structuredClone(DEFAULT_LEG_MINUTES),
+  starterDenverLayover1Minutes: 24, starterDenverLayover2Minutes: 222, starterDenverLayover3Minutes: 24,
+  starterFortCollinsTurn1Minutes: 26, starterFortCollinsTurn2Minutes: 16, starterOvernightMinutes: 480,
+  fullDenverDwellMinutes: 10, fullColoradoSpringsDwellMinutes: 10,
+  fullPuebloLayoverMinutes: 30, fullFortCollinsLayoverMinutes: 480,
+  movingSpeedMph: 65,
   crr: 0.0017, airDensityKgM3: 1.02, dragAreaM2: 16, auxiliaryKwPerCar: 10,
   serviceDaysPerYear: 340, serviceSpanHours: 16, spareRatio: 0.2, analysisYears: 30,
   realDiscountRate: 0.04, batteryCostUsdPerKwh: 350, batterySpecificMassKgPerKwh: 6,
@@ -217,12 +276,22 @@ const G = 9.81;
 const M_PER_MILE = 1609.344;
 const M_PER_FOOT = 0.3048;
 const J_PER_KWH = 3.6e6;
-const STOP_INDEX: Record<RoutePoint, number> = { "fort-collins": 0, "denver-westminster-catenary": 4, denver: 5, "castle-pines-catenary-boundary": 7, "colorado-springs": 10, pueblo: 12 };
+const STOP_INDEX: Record<RoutePoint, number> = { "fort-collins": 0, "denver-westminster-catenary": 6, denver: 7, "castle-pines-catenary-boundary": 9, "colorado-springs": 12, pueblo: 14 };
 
 function routeDistance(route: Route) { return route.segments.reduce((sum, item) => sum + item.distanceMi, 0); }
 export function serviceRoute(pattern: ServicePattern) { return pattern === "starter" ? STARTER_ROUTE : FULL_ROUTE; }
 function dailyRoundTrips(a: Assumptions) { return a.totalTrains * a.roundTripsPerTrainPerDay; }
-function reverseRoute(route: Route): Route { return { ...route, key: `${route.key}-reverse`, segments: [...route.segments].reverse().map((item) => ({ ...item, elevationChangeFt: -item.elevationChangeFt })) }; }
+function segmentMinutes(item: Segment, a: Assumptions) {
+  const timing = a.legMinutes[item.key];
+  return item.reverse ? timing.northbound : timing.southbound;
+}
+function routeMinutes(route: Route, a: Assumptions) { return route.segments.reduce((sum, item) => sum + segmentMinutes(item, a), 0); }
+export function scheduledOneWayMinutes(pattern: ServicePattern, direction: keyof DirectionalMinutes, a: Assumptions) {
+  const route = serviceRoute(pattern);
+  return route.segments.reduce((sum, item) => sum + a.legMinutes[item.key][direction], 0);
+}
+export function scheduledTrainDayMinutes(a: Assumptions) { return scheduledServiceMinutesPerTrain(a); }
+function reverseRoute(route: Route): Route { return { ...route, key: `${route.key}-reverse`, segments: [...route.segments].reverse().map((item) => ({ ...item, reverse: !item.reverse, elevationChangeFt: -item.elevationChangeFt })) }; }
 function routeBetween(from: RoutePoint, to: RoutePoint): Route {
   const start = STOP_INDEX[from];
   const end = STOP_INDEX[to];
@@ -248,7 +317,7 @@ function directionEnergy(route: Route, tech: Technology, a: Assumptions, battery
     const elevationM = item.elevationChangeFt * M_PER_FOOT;
     positiveJ += a.crr * mass * G * distanceM + 0.5 * a.airDensityKgM3 * a.dragAreaM2 * speedMs ** 2 * distanceM + mass * G * Math.max(elevationM, 0) + 0.5 * mass * speedMs ** 2;
     recoverableJ += mass * G * Math.max(-elevationM, 0) + 0.5 * mass * speedMs ** 2;
-    auxiliaryKwh += a.cars * a.auxiliaryKwPerCar * (distanceM / speedMs / 3600);
+    auxiliaryKwh += a.cars * a.auxiliaryKwPerCar * segmentMinutes(item, a) / 60;
   });
   const carrierKwh = Math.max(0, (positiveJ / J_PER_KWH + auxiliaryKwh) / tech.carrierToWheelEfficiency - recoverableJ / J_PER_KWH * tech.regenerativeEfficiency);
   return { carrierKwh, carrierUnits: carrierKwh / tech.carrierKwhPerUnit };
@@ -266,31 +335,65 @@ function energyCircuitDefinitions(pattern: ServicePattern): RoutePoint[][] {
 }
 function circuitLegEnergies(nodes: ServiceStop["key"][], tech: Technology, a: Assumptions, batteryKwhPerCar = 0) { return nodes.map((from, index) => directionEnergy(routeBetween(from, nodes[(index + 1) % nodes.length]), tech, a, batteryKwhPerCar)); }
 
+function scheduledDwellMinutes(a: Assumptions, stopKey: ServiceStop["key"], circuit: number) {
+  if (a.servicePattern === "starter") {
+    if (stopKey === "denver") return [a.starterDenverLayover1Minutes, a.starterDenverLayover2Minutes, a.starterDenverLayover3Minutes][circuit % 3];
+    if (stopKey === "fort-collins") {
+      if (circuit === a.roundTripsPerTrainPerDay - 1) return a.starterOvernightMinutes;
+      return [a.starterFortCollinsTurn1Minutes, a.starterFortCollinsTurn2Minutes][circuit % 2];
+    }
+  }
+  if (stopKey === "denver") return a.fullDenverDwellMinutes;
+  if (stopKey === "colorado-springs") return a.fullColoradoSpringsDwellMinutes;
+  if (stopKey === "pueblo") return a.fullPuebloLayoverMinutes;
+  if (stopKey === "fort-collins") return a.fullFortCollinsLayoverMinutes;
+  return 0;
+}
+
+function scheduledServiceMinutesPerTrain(a: Assumptions) {
+  const route = serviceRoute(a.servicePattern);
+  const movement = a.roundTripsPerTrainPerDay * (routeMinutes(route, a) + routeMinutes(reverseRoute(route), a));
+  if (a.servicePattern === "starter") {
+    const denver = Array.from({ length: a.roundTripsPerTrainPerDay }, (_, circuit) => scheduledDwellMinutes(a, "denver", circuit)).reduce((sum, value) => sum + value, 0);
+    const fortCollinsTurns = Array.from({ length: Math.max(0, a.roundTripsPerTrainPerDay - 1) }, (_, circuit) => scheduledDwellMinutes(a, "fort-collins", circuit)).reduce((sum, value) => sum + value, 0);
+    return movement + denver + fortCollinsTurns;
+  }
+  return movement + a.roundTripsPerTrainPerDay * (a.fullDenverDwellMinutes * 2 + a.fullColoradoSpringsDwellMinutes * 2 + a.fullPuebloLayoverMinutes)
+    + Math.max(0, a.roundTripsPerTrainPerDay - 1) * a.fullFortCollinsLayoverMinutes;
+}
+
 function usesCatenaryWire(from: RoutePoint, to: RoutePoint) {
   const pair = new Set<RoutePoint>([from, to]);
   return (pair.has("denver-westminster-catenary") && pair.has("denver"))
     || (pair.has("denver") && pair.has("castle-pines-catenary-boundary"));
 }
 
-function catenaryConnectedMinutes(a: Assumptions, stops: ServiceStop[]) {
+function catenaryConnectedMinutes(a: Assumptions) {
   const nodes = energyCircuitDefinitions(a.servicePattern)[0];
   let minutes = 0;
-  nodes.forEach((from, index) => {
-    const to = nodes[(index + 1) % nodes.length];
-    if (!usesCatenaryWire(from, to)) return;
-    minutes += routeDistance(routeBetween(from, to)) / a.movingSpeedMph * 60;
-    if (to === "denver") minutes += stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
-  });
+  for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) nodes.forEach((from, index) => {
+      const to = nodes[(index + 1) % nodes.length];
+      if (!usesCatenaryWire(from, to)) return;
+      minutes += routeMinutes(routeBetween(from, to), a);
+      if (to === "denver") minutes += scheduledDwellMinutes(a, "denver", circuit);
+    });
   return minutes;
 }
 
-function catenaryIntervalMinutes(a: Assumptions, stops: ServiceStop[]) {
-  const total = catenaryConnectedMinutes(a, stops);
-  return a.servicePattern === "starter" ? total : total / 2;
+function catenaryIntervalDurations(a: Assumptions) {
+  const nodes = energyCircuitDefinitions(a.servicePattern)[0];
+  const durations: number[] = [];
+  for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) nodes.forEach((from, index) => {
+      const via = nodes[(index + 1) % nodes.length];
+      const to = nodes[(index + 2) % nodes.length];
+      if (!usesCatenaryWire(from, via) || via !== "denver" || !usesCatenaryWire(via, to)) return;
+      durations.push(routeMinutes(routeBetween(from, via), a) + scheduledDwellMinutes(a, "denver", circuit) + routeMinutes(routeBetween(via, to), a));
+    });
+  return durations;
 }
 
-function catenarySharedPowerKw(a: Assumptions, stops: ServiceStop[], catenary: ServiceStop) {
-  const concurrentTrains = Math.max(1, Math.ceil(dailyRoundTrips(a) * catenaryConnectedMinutes(a, stops) / (a.serviceSpanHours * 60)));
+function catenarySharedPowerKw(a: Assumptions, catenary: ServiceStop) {
+  const concurrentTrains = Math.max(1, Math.ceil(a.totalTrains * catenaryConnectedMinutes(a) / (a.serviceSpanHours * 60)));
   return catenary.maximumPowerMw * 1000 / concurrentTrains;
 }
 
@@ -310,11 +413,11 @@ function applyCatenaryEnergy(deficitKwh: number, tractionKwh: number, durationMi
 }
 
 function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], batteryKwhPerCar = 0) {
-  const events: { stopKey: ServiceStop["key"]; gridKwh: number; carrierUnits: number; peakKw?: number }[] = [];
+  const events: { stopKey: ServiceStop["key"]; gridKwh: number; carrierUnits: number; durationMinutes: number; peakKw?: number }[] = [];
   let maxGapKwh = 0;
   if (tech.key === "bemu") {
     const catenary = stops.find((stop) => stop.isCatenary)!;
-    const sharedCatenaryPowerKw = catenarySharedPowerKw(a, stops, catenary);
+    const sharedCatenaryPowerKw = catenarySharedPowerKw(a, catenary);
     energyCircuitDefinitions(a.servicePattern).forEach((sourceNodes) => {
       const firstUnlimited = sourceNodes.findIndex((key) => {
         const stop = stops.find((item) => item.key === key);
@@ -326,55 +429,56 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
         ? [...sourceNodes.slice(startIndex), ...sourceNodes.slice(0, startIndex)]
         : sourceNodes;
       let deficitKwh = 0;
-      nodes.forEach((from, index) => {
-        const to = nodes[(index + 1) % nodes.length];
-        const legRoute = routeBetween(from, to);
-        const leg = directionEnergy(legRoute, tech, a, batteryKwhPerCar);
-        const travelMinutes = routeDistance(legRoute) / a.movingSpeedMph * 60;
-        const usesCatenary = catenary.bemuEnabled && usesCatenaryWire(from, to);
-        if (usesCatenary) {
-          const supplied = applyCatenaryEnergy(deficitKwh, leg.carrierKwh, travelMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
-          deficitKwh = supplied.deficitKwh;
-          events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, peakKw: supplied.gridKwh / Math.max(travelMinutes / 60, 1 / 60) });
-        } else {
-          deficitKwh += leg.carrierKwh;
-        }
-        maxGapKwh = Math.max(maxGapKwh, deficitKwh);
-        if (usesCatenary && to === "denver") {
-          const denverDwellMinutes = stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
-          const supplied = applyCatenaryEnergy(deficitKwh, 0, denverDwellMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
-          deficitKwh = supplied.deficitKwh;
-          events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, peakKw: supplied.gridKwh / Math.max(denverDwellMinutes / 60, 1 / 60) });
-        }
-        const destination = stops.find((stop) => stop.key === to);
-        const catenaryOwnsDenverDwell = catenary.bemuEnabled && destination?.key === "denver" && usesCatenary;
-        if (destination?.bemuEnabled && !destination.isCatenary && !catenaryOwnsDenverDwell) {
-          events.push({ stopKey: destination.key, gridKwh: deficitKwh / a.chargingEfficiency, carrierUnits: deficitKwh });
-          deficitKwh = 0;
-        }
-      });
+      for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) nodes.forEach((from, index) => {
+          const to = nodes[(index + 1) % nodes.length];
+          const legRoute = routeBetween(from, to);
+          const leg = directionEnergy(legRoute, tech, a, batteryKwhPerCar);
+          const travelMinutes = routeMinutes(legRoute, a);
+          const usesCatenary = catenary.bemuEnabled && usesCatenaryWire(from, to);
+          if (usesCatenary) {
+            const supplied = applyCatenaryEnergy(deficitKwh, leg.carrierKwh, travelMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
+            deficitKwh = supplied.deficitKwh;
+            events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, durationMinutes: travelMinutes, peakKw: supplied.gridKwh / Math.max(travelMinutes / 60, 1 / 60) });
+          } else {
+            deficitKwh += leg.carrierKwh;
+          }
+          maxGapKwh = Math.max(maxGapKwh, deficitKwh);
+          if (usesCatenary && to === "denver") {
+            const denverDwellMinutes = scheduledDwellMinutes(a, "denver", circuit);
+            const supplied = applyCatenaryEnergy(deficitKwh, 0, denverDwellMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
+            deficitKwh = supplied.deficitKwh;
+            events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, durationMinutes: denverDwellMinutes, peakKw: supplied.gridKwh / Math.max(denverDwellMinutes / 60, 1 / 60) });
+          }
+          const destination = stops.find((stop) => stop.key === to);
+          const catenaryOwnsDenverDwell = catenary.bemuEnabled && destination?.key === "denver" && usesCatenary;
+          if (destination?.bemuEnabled && !destination.isCatenary && !catenaryOwnsDenverDwell) {
+            const dwellMinutes = scheduledDwellMinutes(a, destination.key, circuit);
+            events.push({ stopKey: destination.key, gridKwh: deficitKwh / a.chargingEfficiency, carrierUnits: deficitKwh, durationMinutes: dwellMinutes });
+            deficitKwh = 0;
+          }
+        });
     });
   } else {
     serviceCircuitDefinitions(a.servicePattern).forEach((nodes) => {
       const legs = circuitLegEnergies(nodes, tech, a, batteryKwhPerCar);
       const facilityIndexes = nodes.map((key, index) => stops.find((stop) => stop.key === key)?.hydrogenEnabled ? index : -1).filter((index) => index >= 0);
       if (facilityIndexes.length === 0) {
-        maxGapKwh = Math.max(maxGapKwh, legs.reduce((sum, leg) => sum + leg.carrierKwh, 0));
+        maxGapKwh = Math.max(maxGapKwh, legs.reduce((sum, leg) => sum + leg.carrierKwh, 0) * a.roundTripsPerTrainPerDay);
         return;
       }
-      facilityIndexes.forEach((current, facilityPosition) => {
-        const previous = facilityIndexes[(facilityPosition - 1 + facilityIndexes.length) % facilityIndexes.length];
-        let index = previous;
-        let carrierKwh = 0;
-        let carrierUnits = 0;
-        do {
-          carrierKwh += legs[index].carrierKwh;
-          carrierUnits += legs[index].carrierUnits;
-          index = (index + 1) % nodes.length;
-        } while (index !== current);
-        maxGapKwh = Math.max(maxGapKwh, carrierKwh);
-        events.push({ stopKey: nodes[current], gridKwh: carrierKwh, carrierUnits });
-      });
+      for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) facilityIndexes.forEach((current, facilityPosition) => {
+          const previous = facilityIndexes[(facilityPosition - 1 + facilityIndexes.length) % facilityIndexes.length];
+          let index = previous;
+          let carrierKwh = 0;
+          let carrierUnits = 0;
+          do {
+            carrierKwh += legs[index].carrierKwh;
+            carrierUnits += legs[index].carrierUnits;
+            index = (index + 1) % nodes.length;
+          } while (index !== current);
+          maxGapKwh = Math.max(maxGapKwh, carrierKwh);
+          events.push({ stopKey: nodes[current], gridKwh: carrierKwh, carrierUnits, durationMinutes: scheduledDwellMinutes(a, nodes[current], circuit) });
+        });
     });
   }
 
@@ -383,22 +487,24 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
     && (tech.key === "bemu" ? stop.bemuEnabled : stop.hydrogenEnabled)
     && (tech.key !== "bemu" || stop.isCatenary || events.some((event) => event.stopKey === stop.key))).map((stop): FacilityCapacity => {
     const siteEvents = events.filter((event) => event.stopKey === stop.key);
-    const modeledDwellMinutes = stop.isCatenary ? catenaryIntervalMinutes(a, stops) : stop.dwellMinutes;
-    const eventsPerDay = siteEvents.length * dailyRoundTrips(a);
-    const concurrency = stop.isCatenary ? Math.max(1, Math.ceil(dailyRoundTrips(a) * catenaryConnectedMinutes(a, stops) / (a.serviceSpanHours * 60))) : Math.max(1, Math.ceil(eventsPerDay * modeledDwellMinutes / (a.serviceSpanHours * 60)));
-    const maxEventKwh = Math.max(0, ...siteEvents.map((event) => event.gridKwh));
-    const maxEventUnits = Math.max(0, ...siteEvents.map((event) => event.carrierUnits));
+    const modeledDwellMinutes = stop.isCatenary
+      ? Math.max(0, ...catenaryIntervalDurations(a))
+      : Math.max(0, ...siteEvents.map((event) => event.durationMinutes));
+    const occupiedMinutesPerTrainDay = siteEvents.reduce((sum, event) => sum + event.durationMinutes, 0);
+    const concurrency = Math.max(1, Math.ceil(a.totalTrains * occupiedMinutesPerTrainDay / (a.serviceSpanHours * 60)));
     if (tech.key === "bemu") {
-      const capacityKw = stop.isCatenary ? Math.max(0, ...siteEvents.map((event) => event.peakKw ?? 0)) * concurrency : maxEventKwh / Math.max(modeledDwellMinutes / 60, 1 / 60) * concurrency;
+      const capacityKw = stop.isCatenary
+        ? Math.max(0, ...siteEvents.map((event) => event.peakKw ?? 0)) * concurrency
+        : Math.max(0, ...siteEvents.map((event) => event.gridKwh / Math.max(event.durationMinutes / 60, 1 / 60))) * concurrency;
       const maximumPowerKw = stop.isCatenary ? stop.maximumPowerMw * 1000 : null;
       const actualPeakKw = maximumPowerKw === null ? capacityKw : Math.min(capacityKw, maximumPowerKw);
       const billedPeakKw = actualPeakKw * (1 - Math.min(1, Math.max(0, stop.peakDemandAttenuationFraction)));
-      const annualEnergyKwh = siteEvents.reduce((sum, event) => sum + event.gridKwh, 0) * dailyRoundTrips(a) * a.serviceDaysPerYear;
+      const annualEnergyKwh = siteEvents.reduce((sum, event) => sum + event.gridKwh, 0) * a.totalTrains * a.serviceDaysPerYear;
       return { stopKey: stop.key, stopName: stop.name, dwellMinutes: modeledDwellMinutes, capacity: actualPeakKw, capacityUnit: "kW", peakRate: actualPeakKw, peakRateUnit: "kW", capitalMUsd: stop.isCatenary ? 0 : actualPeakKw * (a.gridUpgradeUsdPerKw + a.chargerEquipmentUsdPerKw) / 1e6, annualEnergyKwh, energyRateUsdPerKwh: stop.electricityEnergyUsdPerKwh, demandRateUsdPerKwMonth: stop.electricityDemandUsdPerKwMonth, billedPeakKw, maximumPowerKw, isExistingInfrastructure: stop.isCatenary };
     }
-    const dailyKg = siteEvents.reduce((sum, event) => sum + event.carrierUnits, 0) * dailyRoundTrips(a);
-    const peakKgHour = maxEventUnits / Math.max(stop.dwellMinutes / 60, 1 / 60) * concurrency;
-    return { stopKey: stop.key, stopName: stop.name, dwellMinutes: stop.dwellMinutes, capacity: dailyKg, capacityUnit: "kg/day", peakRate: peakKgHour, peakRateUnit: "kg/hour", capitalMUsd: (dailyKg * a.hydrogenSupplyUsdPerKgDay + peakKgHour * a.hydrogenDispenserUsdPerKgHour) / 1e6, annualEnergyKwh: 0, energyRateUsdPerKwh: 0, demandRateUsdPerKwMonth: 0, billedPeakKw: 0, maximumPowerKw: null, isExistingInfrastructure: false };
+    const dailyKg = siteEvents.reduce((sum, event) => sum + event.carrierUnits, 0) * a.totalTrains;
+    const peakKgHour = Math.max(0, ...siteEvents.map((event) => event.carrierUnits / Math.max(event.durationMinutes / 60, 1 / 60))) * concurrency;
+    return { stopKey: stop.key, stopName: stop.name, dwellMinutes: modeledDwellMinutes, capacity: dailyKg, capacityUnit: "kg/day", peakRate: peakKgHour, peakRateUnit: "kg/hour", capitalMUsd: (dailyKg * a.hydrogenSupplyUsdPerKgDay + peakKgHour * a.hydrogenDispenserUsdPerKgHour) / 1e6, annualEnergyKwh: 0, energyRateUsdPerKwh: 0, demandRateUsdPerKwMonth: 0, billedPeakKw: 0, maximumPowerKw: null, isExistingInfrastructure: false };
   });
   return { facilities, maxGapKwh };
 }
@@ -414,21 +520,16 @@ function requiredBatteryKwhPerCar(tech: Technology, a: Assumptions, stops: Servi
   return estimate;
 }
 
-function requiredFleet(a: Assumptions, stops: ServiceStop[]) {
+function requiredFleet(a: Assumptions) {
   const spareDivisor = Math.max(1 - a.spareRatio, 0.01);
-  const cycleHours = (nodes: ServiceStop["key"][]) => {
-    const moving = nodes.reduce((sum, from, index) => sum + routeDistance(routeBetween(from, nodes[(index + 1) % nodes.length])) / a.movingSpeedMph, 0);
-    const dwell = nodes.reduce((sum, key) => sum + (stops.find((stop) => stop.key === key)?.dwellMinutes ?? 0) / 60, 0);
-    return moving + dwell;
-  };
-  const needed = (nodes: ServiceStop["key"][]) => Math.ceil(dailyRoundTrips(a) * cycleHours(nodes) / a.serviceSpanHours / spareDivisor);
-  return needed(serviceCircuitDefinitions(a.servicePattern)[0]);
+  const scheduledHoursPerTrain = scheduledServiceMinutesPerTrain(a) / 60;
+  return Math.ceil(a.totalTrains * scheduledHoursPerTrain / a.serviceSpanHours / spareDivisor);
 }
 
 function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], batteryKwhPerCar: number, usableBatteryKwh: number) {
   const nodes = energyCircuitDefinitions(a.servicePattern)[0];
   const catenary = stops.find((stop) => stop.isCatenary)!;
-  const sharedCatenaryPowerKw = catenarySharedPowerKw(a, stops, catenary);
+  const sharedCatenaryPowerKw = catenarySharedPowerKw(a, catenary);
   const shortName = (key: RoutePoint) => ({
     "fort-collins": "Fort Collins",
     "denver-westminster-catenary": "Westminster",
@@ -452,8 +553,8 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           const firstRoute = routeBetween(from, via);
           const secondRoute = routeBetween(via, to);
           const distanceMi = routeDistance(firstRoute) + routeDistance(secondRoute);
-          const travelMinutes = distanceMi / a.movingSpeedMph * 60;
-          const denverDwellMinutes = stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
+          const travelMinutes = routeMinutes(firstRoute, a) + routeMinutes(secondRoute, a);
+          const denverDwellMinutes = scheduledDwellMinutes(a, "denver", circuit);
           const durationMinutes = travelMinutes + denverDwellMinutes;
           const tractionKwh = directionEnergy(firstRoute, tech, a, batteryKwhPerCar).carrierKwh
             + directionEnergy(secondRoute, tech, a, batteryKwhPerCar).carrierKwh;
@@ -490,24 +591,25 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           energyKwh: -leg.carrierKwh,
           powerKw: null,
           distanceMi: legDistanceMi,
-          durationMinutes: legDistanceMi / a.movingSpeedMph * 60,
+          durationMinutes: routeMinutes(legRoute, a),
           batteryBeforeKwh: beforeTravel,
             batteryAfterKwh: usableBatteryKwh - deficitKwh,
           });
         const destination = stops.find((stop) => stop.key === to);
         if (destination?.bemuEnabled && !destination.isCatenary) {
+          const dwellMinutes = scheduledDwellMinutes(a, destination.key, circuit);
           const deliveredKwh = deficitKwh;
           const beforeCharge = usableBatteryKwh - deficitKwh;
           deficitKwh = 0;
           if (capture) steps.push({
             key: `c${circuit}-station${index}`,
             label: `${destination.name} charge`,
-            detail: "Station stopover",
+            detail: a.servicePattern === "starter" ? "Published train-day layover" : "Planning dwell estimate",
             kind: "station",
             energyKwh: deliveredKwh,
-            powerKw: deliveredKwh / a.chargingEfficiency / Math.max(destination.dwellMinutes / 60, 1 / 60),
+            powerKw: deliveredKwh / a.chargingEfficiency / Math.max(dwellMinutes / 60, 1 / 60),
             distanceMi: null,
-            durationMinutes: destination.dwellMinutes,
+            durationMinutes: dwellMinutes,
             batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh,
           });
@@ -542,10 +644,10 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
 function catenaryPeakDemandKw(route: Route, tech: Technology, a: Assumptions) {
   const peakPerTrainKw = Math.max(...route.segments.map((item) => {
     const segmentRoute: Route = { ...route, segments: [item] };
-    const durationHours = item.distanceMi / a.movingSpeedMph;
+    const durationHours = segmentMinutes(item, a) / 60;
     return directionEnergy(segmentRoute, tech, a).carrierKwh / Math.max(durationHours, 1 / 60);
   }));
-  const movingTrainHours = dailyRoundTrips(a) * 2 * routeDistance(route) / a.movingSpeedMph;
+  const movingTrainHours = dailyRoundTrips(a) * (routeMinutes(route, a) + routeMinutes(reverseRoute(route), a)) / 60;
   const concurrentTrains = Math.max(1, Math.min(a.totalTrains, Math.ceil(movingTrainHours / a.serviceSpanHours)));
   return peakPerTrainKw * concurrentTrains;
 }
@@ -557,7 +659,7 @@ function calculateFixedSiteOutcomes(technologies: Technology[], a: Assumptions, 
   const distanceMi = routeDistance(route);
   const annualRoundTrips = dailyRoundTrips(a) * a.serviceDaysPerYear;
   const trainMiles = 2 * distanceMi * annualRoundTrips;
-  const required = requiredFleet(a, stops);
+  const required = requiredFleet(a);
   const af = annuityFactor(a.realDiscountRate, a.analysisYears);
   return technologies.map((tech): Outcome => {
     const requiredPerCar = tech.key === "bemu" ? requiredBatteryKwhPerCar(tech, a, stops) : null;
@@ -682,16 +784,18 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
 function readBandBase(id: string, assumptions: Assumptions, technologies: Technology[], stops: ServiceStop[]) {
   const [scope, first, second] = id.split(".");
   if (scope === "a") return assumptions[first as keyof Assumptions] as number;
+  if (scope === "l") return assumptions.legMinutes[first as LegKey][second as keyof DirectionalMinutes];
   if (scope === "s") return stops.find((stop) => stop.key === first)?.[second as keyof ServiceStop] as number;
   return technologies.find((item) => item.key === first)?.[second as keyof Technology] as number;
 }
 function applyBandValues(assumptions: Assumptions, technologies: Technology[], stops: ServiceStop[], values: Record<string, number>) {
-  const nextAssumptions = { ...assumptions };
+  const nextAssumptions = { ...assumptions, legMinutes: Object.fromEntries(Object.entries(assumptions.legMinutes).map(([key, timing]) => [key, { ...timing }])) as Record<LegKey, DirectionalMinutes> };
   const nextTechnologies = technologies.map((item) => ({ ...item }));
   const nextStops = stops.map((item) => ({ ...item }));
   Object.entries(values).forEach(([id, value]) => {
     const [scope, first, second] = id.split(".");
     if (scope === "a") (nextAssumptions as unknown as Record<string, number>)[first] = value;
+    else if (scope === "l") nextAssumptions.legMinutes[first as LegKey][second as keyof DirectionalMinutes] = value;
     else if (scope === "s") {
       const stop = nextStops.find((item) => item.key === first);
       if (stop) (stop as unknown as Record<string, number>)[second] = value;
@@ -711,7 +815,7 @@ export function calculateCostRanges(technologies: Technology[], assumptions: Ass
     return { technology, lowMUsdPerYear: base.equivalentAnnualCostMUsd, baseMUsdPerYear: base.equivalentAnnualCostMUsd, highMUsdPerYear: base.equivalentAnnualCostMUsd };
   });
   return technologies.map((technology) => {
-    const relevantEntries = activeEntries.filter(([id]) => id.startsWith("a.") || id.startsWith("s.") || id.startsWith(`t.${technology.key}.`));
+    const relevantEntries = activeEntries.filter(([id]) => id.startsWith("a.") || id.startsWith("l.") || id.startsWith("s.") || id.startsWith(`t.${technology.key}.`));
     const baseValues = Object.fromEntries(relevantEntries.map(([id]) => [id, readBandBase(id, assumptions, technologies, stops)]));
     const lowValues = Object.fromEntries(relevantEntries.map(([id, band]) => [id, band.low]));
     const highValues = Object.fromEntries(relevantEntries.map(([id, band]) => [id, band.high]));

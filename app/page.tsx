@@ -9,15 +9,19 @@ import {
   DEFAULT_ASSUMPTIONS,
   DEFAULT_STOPS,
   DEFAULT_TECHNOLOGIES,
+  LegKey,
   Outcome,
+  SCHEDULE_LEGS,
   ServiceStop,
   Technology,
   calculateCostRanges,
   calculateOutcomes,
+  scheduledOneWayMinutes,
+  scheduledTrainDayMinutes,
   serviceRoute,
 } from "@/lib/model";
 
-type NumericKey = Exclude<keyof Assumptions, "servicePattern">;
+type NumericKey = Exclude<keyof Assumptions, "servicePattern" | "legMinutes">;
 
 type PresetDefinition = {
   id: string;
@@ -41,6 +45,8 @@ const PRESETS: PresetDefinition[] = [
       "a.cars": { low: 6, high: 10 },
       "a.loadFactor": { low: 0.35, high: 0.7 },
       "a.movingSpeedMph": { low: 55, high: 75 },
+      "l.westminster-denver.southbound": { low: 14, high: 20 },
+      "l.westminster-denver.northbound": { low: 17, high: 23 },
       "a.batterySpecificMassKgPerKwh": { low: 4, high: 8 },
       "a.batteryCostUsdPerKwh": { low: 200, high: 600 },
       "a.realDiscountRate": { low: 0.025, high: 0.07 },
@@ -62,7 +68,8 @@ const PRESETS: PresetDefinition[] = [
       "s.denver-westminster-catenary.electricityEnergyUsdPerKwh": { low: 0.005, high: 0.05 },
       "t.catenary.infrastructureMUsdPerRouteMile": { low: 3, high: 7 },
       "a.hydrogenSupplyUsdPerKgDay": { low: 900, high: 2800 },
-      "s.denver.dwellMinutes": { low: 10, high: 35 },
+      "a.starterDenverLayover1Minutes": { low: 15, high: 40 },
+      "a.starterDenverLayover2Minutes": { low: 120, high: 300 },
     },
   },
   {
@@ -103,6 +110,9 @@ const PRESETS: PresetDefinition[] = [
       "a.cars": { low: 6, high: 10 },
       "a.loadFactor": { low: 0.45, high: 0.8 },
       "a.movingSpeedMph": { low: 60, high: 80 },
+      "l.denver-littleton.southbound": { low: 12, high: 22 },
+      "l.fountain-pueblo.southbound": { low: 40, high: 65 },
+      "l.fountain-pueblo.northbound": { low: 40, high: 65 },
       "a.serviceSpanHours": { low: 16, high: 20 },
       "a.spareRatio": { low: 0.15, high: 0.3 },
     },
@@ -518,7 +528,7 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
       </div>
       )}
       {!outcome.energyFlowRepeatable && <p className="flow-warning">The enabled sources do not restore the energy used over a repeating train-day. The chart therefore starts with a full usable battery and shows the accumulating shortfall; this configuration requires another charging source or more delivered energy.</p>}
-      <p className="range-footnote">Movement time follows the current speed assumption. Each blue catenary step combines travel under wire with the Denver dwell, supplies traction directly first, and uses only surplus power to charge the battery; its Δ label is the net battery change. Station steps use configured stopover time. Power labels are average grid-side kW for this train; site demand can be higher when trains overlap.</p>
+      <p className="range-footnote">Travel durations come from the direction-specific timetable inputs. Each blue catenary step combines scheduled travel under wire with that circuit’s Denver layover or through dwell, supplies traction directly first, and uses only surplus power to charge the battery; its Δ label is the net battery change. Power labels are average grid-side kW for this train; site demand can be higher when trains overlap.</p>
     </section>
   );
 }
@@ -545,12 +555,25 @@ export default function Home() {
   const catenary = outcomes.find((item) => item.technology.key === "catenary")!;
   const activeRoute = serviceRoute(assumptions.servicePattern);
   const fleetRoundTripsPerDay = assumptions.totalTrains * assumptions.roundTripsPerTrainPerDay;
+  const southboundMinutes = scheduledOneWayMinutes(assumptions.servicePattern, "southbound", assumptions);
+  const northboundMinutes = scheduledOneWayMinutes(assumptions.servicePattern, "northbound", assumptions);
+  const trainDayMinutes = scheduledTrainDayMinutes(assumptions);
   const maxCost = Math.max(...outcomes.map((item) => item.equivalentAnnualCostMUsd));
   const selectedBemuSites = bemu.selectedBemuStopKeys.map((key) => stops.find((stop) => stop.key === key)?.name).filter(Boolean);
 
   const update = (key: NumericKey, value: number) => {
     setActivePreset(null);
     setAssumptions((current) => ({ ...current, [key]: value }));
+  };
+  const updateLegTime = (key: LegKey, direction: "southbound" | "northbound", value: number) => {
+    setActivePreset(null);
+    setAssumptions((current) => ({
+      ...current,
+      legMinutes: {
+        ...current.legMinutes,
+        [key]: { ...current.legMinutes[key], [direction]: value },
+      },
+    }));
   };
   const updateTechnology = (key: Technology["key"], field: keyof Technology, value: number) => {
     setActivePreset(null);
@@ -575,7 +598,7 @@ export default function Home() {
     },
   });
   const applyPreset = (preset: PresetDefinition) => {
-    setAssumptions({ ...DEFAULT_ASSUMPTIONS, ...preset.assumptions });
+    setAssumptions({ ...DEFAULT_ASSUMPTIONS, legMinutes: structuredClone(DEFAULT_ASSUMPTIONS.legMinutes), ...preset.assumptions });
     setTechnologies(DEFAULT_TECHNOLOGIES.map((technology) => ({
       ...technology,
       ...preset.technologies?.[technology.key],
@@ -585,7 +608,7 @@ export default function Home() {
     setActivePreset(preset.id);
   };
   const reset = () => {
-    setAssumptions(DEFAULT_ASSUMPTIONS);
+    setAssumptions({ ...DEFAULT_ASSUMPTIONS, legMinutes: structuredClone(DEFAULT_ASSUMPTIONS.legMinutes) });
     setTechnologies(DEFAULT_TECHNOLOGIES);
     setStops(DEFAULT_STOPS);
     setBands({});
@@ -643,7 +666,7 @@ export default function Home() {
           </p>
         </div>
         <div className="summary-metrics">
-          <Metric label="Schedule capacity screen" value={leader.fleetSufficient ? "Sufficient" : "Shortfall"} note={`${assumptions.totalTrains} specified · ${leader.requiredFleetSize} estimated need · ${fleetRoundTripsPerDay} fleet-wide round trips`} />
+          <Metric label="Schedule capacity screen" value={leader.fleetSufficient ? "Sufficient" : "Shortfall"} note={`${assumptions.totalTrains} specified · ${leader.requiredFleetSize} incl. ${Math.round(assumptions.spareRatio * 100)}% spare · ${fleetRoundTripsPerDay} fleet-wide round trips`} />
           <Metric label="Modeled riders / train" value={number.format(assumptions.cars * assumptions.seatsPerCar * assumptions.loadFactor)} note={`${assumptions.cars} cars at ${Math.round(assumptions.loadFactor * 100)}% load`} />
           <Metric
             label="Calculated BEMU battery"
@@ -696,7 +719,7 @@ export default function Home() {
               <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{outcome.bemuSiteOptimizationActive ? `Optimized subset · ${outcome.selectedBemuStopKeys.length} of ${outcome.eligibleBemuStopKeys.length} eligible sources` : `${money(outcome.infrastructureCapitalMUsd)} modeled infrastructure`}</p></div></div>
               {outcome.facilityCapacities.length ? outcome.facilityCapacities.map((facility) => (
                 <div className="capacity-site" key={facility.stopKey}>
-                  <div><strong>{facility.stopName}</strong><span>{number.format(facility.dwellMinutes)}-minute {facility.isExistingInfrastructure ? "modeled connected interval" : "stopover"}</span></div>
+                  <div><strong>{facility.stopName}</strong><span>{number.format(facility.dwellMinutes)}-minute {facility.isExistingInfrastructure ? "maximum connected interval" : "maximum timetable dwell"}</span></div>
                   <div><strong>{number.format(facility.capacity)} {facility.capacityUnit}</strong><span>{facility.maximumPowerKw ? `${(facility.maximumPowerKw / 1000).toFixed(1)} MW maximum` : facility.peakRateUnit === facility.capacityUnit ? "modeled site capacity" : `${number.format(facility.peakRate)} ${facility.peakRateUnit} peak`}</span></div>
                   <b>{facility.isExistingInfrastructure ? "Existing" : money(facility.capitalMUsd)}</b>
                 </div>
@@ -704,7 +727,7 @@ export default function Home() {
             </article>
           ))}
         </div>
-        <p className="range-footnote">Capacity is a screening estimate based on energy replenished since the preceding enabled facility, stopover duration, scheduled arrivals, and modeled concurrency.</p>
+        <p className="range-footnote">Capacity is a screening estimate based on energy replenished since the preceding enabled facility, timetable-derived dwell, scheduled arrivals, and modeled concurrency.</p>
       </section>
 
       <EnergyFlowChart outcome={bemu} />
@@ -738,7 +761,7 @@ export default function Home() {
             <div className="capacity-site"><div><strong>Corridor billing demand</strong><span>{number.format(catenary.unattenuatedPeakDemandKw)} kW before attenuation</span></div><div><strong>{number.format(catenary.billedPeakDemandKw)} kW billed</strong><span>${catenary.technology.electricityDemandUsdPerKwMonth.toFixed(0)}/kW-month</span></div><b>{money(catenary.annualDemandChargeMUsd)}</b></div>
           </article>
         </div>
-        <p className="range-footnote">Each BEMU source uses its own volume rate, demand rate, and peak attenuation. The Castle Pines–Westminster catenary is capped at its specified capacity; connection time is derived from travel under wire plus Denver dwell, and modeled cost uses actual delivered energy and power. Storage capital and losses remain outside this screen.</p>
+        <p className="range-footnote">Each BEMU source uses its own volume rate, demand rate, and peak attenuation. The Castle Pines–Westminster catenary is capped at its specified capacity; connection time follows the direction-specific timetable and applicable Denver dwell, and modeled cost uses actual delivered energy and power. Storage capital and losses remain outside this screen.</p>
       </section>
 
         </div>
@@ -809,10 +832,48 @@ export default function Home() {
             </div>
           </details>
 
+          <details open className="timetable-section">
+            <summary>Timetable & dwell <span>{assumptions.servicePattern === "starter" ? "published starter times" : "published + estimated"}</span></summary>
+            <div className="timetable-body">
+              <div className="timetable-summary">
+                <div><span>Southbound</span><strong>{number.format(southboundMinutes)} min</strong></div>
+                <div><span>Northbound</span><strong>{number.format(northboundMinutes)} min</strong></div>
+                <div><span>Representative train-day</span><strong>{(trainDayMinutes / 60).toFixed(1)} hr</strong></div>
+              </div>
+              <p className="input-note">Leg times control schedules, auxiliary energy, and catenary-connected travel. “Equivalent aerodynamic speed” remains a separate advanced energy assumption.</p>
+              <div className="timetable-leg-list">
+                {SCHEDULE_LEGS.filter((_, index) => assumptions.servicePattern === "full" || index < 7).map((leg) => (
+                  <div className="timetable-leg" key={leg.key}>
+                    <div className="timetable-leg-heading"><strong>{leg.name}</strong><span className={leg.source === "Published timetable" ? "published" : "estimated"}>{leg.source}</span></div>
+                    <div className="timetable-directions">
+                      <Slider label="Southbound" value={assumptions.legMinutes[leg.key].southbound} min={5} max={90} step={1} digits={0} unit=" min" onChange={(value) => updateLegTime(leg.key, "southbound", value)} {...bandProps(`l.${leg.key}.southbound`)} />
+                      <Slider label="Northbound" value={assumptions.legMinutes[leg.key].northbound} min={5} max={90} step={1} digits={0} unit=" min" onChange={(value) => updateLegTime(leg.key, "northbound", value)} {...bandProps(`l.${leg.key}.northbound`)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="timetable-layovers">
+                <h3>{assumptions.servicePattern === "starter" ? "Published train-day layovers" : "Planning dwell and layover estimates"}</h3>
+                {assumptions.servicePattern === "starter" ? <>
+                  <Slider label="Denver layover · circuit 1" value={assumptions.starterDenverLayover1Minutes} min={5} max={300} step={1} digits={0} unit=" min" onChange={(value) => update("starterDenverLayover1Minutes", value)} {...bandProps("a.starterDenverLayover1Minutes")} />
+                  <Slider label="Fort Collins turn · after circuit 1" value={assumptions.starterFortCollinsTurn1Minutes} min={5} max={120} step={1} digits={0} unit=" min" onChange={(value) => update("starterFortCollinsTurn1Minutes", value)} {...bandProps("a.starterFortCollinsTurn1Minutes")} />
+                  <Slider label="Denver layover · circuit 2" value={assumptions.starterDenverLayover2Minutes} min={5} max={360} step={1} digits={0} unit=" min" onChange={(value) => update("starterDenverLayover2Minutes", value)} {...bandProps("a.starterDenverLayover2Minutes")} />
+                  <Slider label="Fort Collins turn · after circuit 2" value={assumptions.starterFortCollinsTurn2Minutes} min={5} max={120} step={1} digits={0} unit=" min" onChange={(value) => update("starterFortCollinsTurn2Minutes", value)} {...bandProps("a.starterFortCollinsTurn2Minutes")} />
+                  <Slider label="Denver layover · circuit 3" value={assumptions.starterDenverLayover3Minutes} min={5} max={300} step={1} digits={0} unit=" min" onChange={(value) => update("starterDenverLayover3Minutes", value)} {...bandProps("a.starterDenverLayover3Minutes")} />
+                  <Slider label="Fort Collins overnight" value={assumptions.starterOvernightMinutes} min={60} max={720} step={5} digits={0} unit=" min" onChange={(value) => update("starterOvernightMinutes", value)} {...bandProps("a.starterOvernightMinutes")} />
+                </> : <>
+                  <Slider label="Denver through dwell" value={assumptions.fullDenverDwellMinutes} min={1} max={45} step={1} digits={0} unit=" min" onChange={(value) => update("fullDenverDwellMinutes", value)} {...bandProps("a.fullDenverDwellMinutes")} />
+                  <Slider label="Colorado Springs through dwell" value={assumptions.fullColoradoSpringsDwellMinutes} min={1} max={45} step={1} digits={0} unit=" min" onChange={(value) => update("fullColoradoSpringsDwellMinutes", value)} {...bandProps("a.fullColoradoSpringsDwellMinutes")} />
+                  <Slider label="Pueblo terminal layover" value={assumptions.fullPuebloLayoverMinutes} min={5} max={180} step={5} digits={0} unit=" min" onChange={(value) => update("fullPuebloLayoverMinutes", value)} {...bandProps("a.fullPuebloLayoverMinutes")} />
+                  <Slider label="Fort Collins terminal / overnight" value={assumptions.fullFortCollinsLayoverMinutes} min={30} max={720} step={5} digits={0} unit=" min" onChange={(value) => update("fullFortCollinsLayoverMinutes", value)} {...bandProps("a.fullFortCollinsLayoverMinutes")} />
+                </>}
+              </div>
+            </div>
+          </details>
+
           <details open>
-            <summary>Service & fleet <span>6 inputs</span></summary>
+            <summary>Service & fleet <span>5 inputs</span></summary>
             <div className="details-body">
-              <Slider label="Moving speed" value={assumptions.movingSpeedMph} min={35} max={90} step={1} digits={0} unit=" mph" onChange={(v) => update("movingSpeedMph", v)} {...bandProps("a.movingSpeedMph")} />
               <Slider label="Service days / year" value={assumptions.serviceDaysPerYear} min={250} max={365} step={5} digits={0} onChange={(v) => update("serviceDaysPerYear", v)} {...bandProps("a.serviceDaysPerYear")} />
               <Slider label="Service span" value={assumptions.serviceSpanHours} min={8} max={22} step={1} digits={0} unit=" hr" onChange={(v) => update("serviceSpanHours", v)} {...bandProps("a.serviceSpanHours")} />
               <Slider label="Spare ratio" value={assumptions.spareRatio} min={0} max={0.4} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(v) => update("spareRatio", v)} {...bandProps("a.spareRatio")} />
@@ -822,8 +883,9 @@ export default function Home() {
           </details>
 
           <details>
-            <summary>Train & energy <span>8 inputs</span></summary>
+            <summary>Train & energy <span>9 inputs</span></summary>
             <div className="details-body">
+              <Slider label="Equivalent aerodynamic speed" value={assumptions.movingSpeedMph} min={35} max={90} step={1} digits={0} unit=" mph" onChange={(v) => update("movingSpeedMph", v)} {...bandProps("a.movingSpeedMph")} />
               <Slider label="Tare mass / car" value={assumptions.tareTonnesPerCar} min={20} max={60} step={1} digits={0} unit=" t" onChange={(v) => update("tareTonnesPerCar", v)} {...bandProps("a.tareTonnesPerCar")} />
               <Slider label="Auxiliary load / car" value={assumptions.auxiliaryKwPerCar} min={3} max={25} step={1} digits={0} unit=" kW" onChange={(v) => update("auxiliaryKwPerCar", v)} {...bandProps("a.auxiliaryKwPerCar")} />
               <Slider label="Rolling coefficient" value={assumptions.crr} min={0.0008} max={0.003} step={0.0001} digits={4} onChange={(v) => update("crr", v)} {...bandProps("a.crr")} />
@@ -862,11 +924,11 @@ export default function Home() {
                     {!stop.isCatenary && <label><input type="checkbox" checked={stop.hydrogenEnabled} onChange={(event) => updateStop(stop.key, { hydrogenEnabled: event.target.checked })} /> Hydrogen fueling</label>}
                   </div>
                   {stop.isCatenary && <Slider label="Maximum connection capacity" value={stop.maximumPowerMw} min={0.05} max={15} step={0.05} digits={2} unit=" MW" onChange={(value) => updateStop(stop.key, { maximumPowerMw: value })} {...bandProps(`s.${stop.key}.maximumPowerMw`)} />}
-                  {!stop.isCatenary && <Slider label="Stopover" value={stop.dwellMinutes} min={5} max={120} step={5} digits={0} unit=" min" onChange={(value) => updateStop(stop.key, { dwellMinutes: value })} {...bandProps(`s.${stop.key}.dwellMinutes`)} />}
+                  {!stop.isCatenary && <p className="input-note">Charging and fueling duration comes from the timetable and dwell assumptions above.</p>}
                   <Slider label="Energy rate / kWh" value={stop.electricityEnergyUsdPerKwh} min={0} max={0.3} step={0.005} digits={3} unit=" $" onChange={(value) => updateStop(stop.key, { electricityEnergyUsdPerKwh: value })} {...bandProps(`s.${stop.key}.electricityEnergyUsdPerKwh`)} />
                   <Slider label="Demand rate / kW-month" value={stop.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(value) => updateStop(stop.key, { electricityDemandUsdPerKwMonth: value })} {...bandProps(`s.${stop.key}.electricityDemandUsdPerKwMonth`)} />
                   <Slider label="Peak attenuation from storage" value={stop.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(value) => updateStop(stop.key, { peakDemandAttenuationFraction: value })} {...bandProps(`s.${stop.key}.peakDemandAttenuationFraction`)} />
-                  {stop.isCatenary && <p className="input-note">Existing infrastructure: no new BEMU charging capital is assigned. Connected time is calculated from travel between Westminster and Castle Pines plus dwell at Denver. While enabled, the catenary supplies traction first and supersedes the separate Denver charger during that dwell.</p>}
+                  {stop.isCatenary && <p className="input-note">Existing infrastructure: no new BEMU charging capital is assigned. Connected time uses the direction-specific Westminster–Denver and Denver–Castle Pines timetable legs plus the applicable Denver layover or through dwell. While enabled, the catenary supplies traction first and supersedes the separate Denver charger during that dwell.</p>}
                 </div>
               ))}
             </div>
@@ -885,7 +947,7 @@ export default function Home() {
               <summary><span className="summary-tech"><i style={{ background: tech.color }} />{tech.name}</span><span>cost & performance</span></summary>
               <div className="details-body">
                 {tech.key === "diesel" && <p className="technology-note">Diesel-electric transmission is assumed; “Diesel locomotive” keeps the option label neutral until FRPR identifies specific equipment.</p>}
-                {(tech.key === "bemu" || tech.key === "hydrogen") && <p className="technology-note">Infrastructure capital is calculated from enabled sites, replenishment demand, stopover time, and the capacity-cost inputs above.</p>}
+                {(tech.key === "bemu" || tech.key === "hydrogen") && <p className="technology-note">Infrastructure capital is calculated from enabled sites, replenishment demand, timetable dwell, and the capacity-cost inputs above.</p>}
                 {tech.key === "bemu" && <p className="technology-note">Electricity energy, demand, and peak-attenuation assumptions are configured separately at each enabled source above.</p>}
                 {tech.key === "catenary" && <p className="technology-note">These tariff inputs apply to the full-corridor catenary option. The existing Castle Pines–Westminster stretch used by BEMU is configured separately above.</p>}
                 <Slider label="Fixed vehicle / train" value={tech.fixedVehicleCostMUsd} min={0} max={15} step={0.25} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedVehicleCostMUsd", v)} {...bandProps(`t.${tech.key}.fixedVehicleCostMUsd`)} />

@@ -13,7 +13,7 @@ class TestDecisionModel:
         self.model = DecisionModel(self.assumptions)
 
     def test_reverse_direction_changes_grade_sign(self):
-        uphill = Route("test", "Test", (Segment("A-B", 10, 1000),))
+        uphill = Route("test", "Test", (Segment("A-B", 10, 1000, 15, 15),))
         up = self.model.direction_energy(uphill, TECHNOLOGIES["bemu"])
         down = self.model.direction_energy(uphill.reversed(), TECHNOLOGIES["bemu"])
         assert up.carrier_kwh > down.carrier_kwh
@@ -47,12 +47,19 @@ class TestDecisionModel:
         assert self.assumptions.round_trips_per_train_per_day == 3
         assert self.model.daily_round_trips() == 3
         assert self.model.service_route() == STARTER_ROUTE
+        assert self.model.route_minutes(STARTER_ROUTE) == pytest.approx(108)
+        assert self.model.route_minutes(STARTER_ROUTE.reversed()) == pytest.approx(108)
+        assert STARTER_ROUTE.distance_mi == pytest.approx(65)
+        assert len(STARTER_ROUTE.segments) == 7
+        assert self.model.required_fleet() == 2  # one scheduled train plus the configured spare allowance
 
     def test_full_service_adds_south_route_energy_and_miles(self):
         starter = self.model.outcome(TECHNOLOGIES["diesel"])
         full = DecisionModel(replace(self.assumptions, service_pattern="full", round_trips_per_train_per_day=1)).outcome(TECHNOLOGIES["diesel"])
         assert full.annual_carrier_units > starter.annual_carrier_units / 3
         assert DecisionModel(replace(self.assumptions, service_pattern="full")).service_route() == FULL_ROUTE
+        assert self.model.route_minutes(FULL_ROUTE) == pytest.approx(288)
+        assert self.model.route_minutes(FULL_ROUTE.reversed()) == pytest.approx(288)
 
     def test_zero_discount_rate_uses_straight_line_annualization(self):
         outcome = DecisionModel(replace(self.assumptions, real_discount_rate=0)).outcome(TECHNOLOGIES["diesel"])
@@ -101,23 +108,22 @@ class TestDecisionModel:
         facility = next(site for site in outcome.facility_capacities if site.stop_key == catenary.key)
         assert catenary.maximum_power_mw == 5
         assert catenary.dwell_minutes == 0
-        assert facility.dwell_minutes == pytest.approx(2 * 8 / self.assumptions.moving_speed_mph * 60 + 20)
+        assert facility.dwell_minutes == pytest.approx(257)
         assert catenary.electricity_energy_usd_per_kwh == 0.01
         assert catenary.electricity_demand_usd_per_kw_month == 0
         assert facility.peak_rate <= catenary.maximum_power_mw * 1000
         assert facility.capital_musd == 0
         assert facility.is_existing_infrastructure
 
-    def test_catenary_connection_time_uses_speed_and_denver_dwell(self):
+    def test_catenary_connection_time_uses_timetable_and_circuit_layovers(self):
         base = self.model.outcome(TECHNOLOGIES["bemu"])
         base_catenary = next(site for site in base.facility_capacities if site.is_existing_infrastructure)
         slower = DecisionModel(replace(self.assumptions, moving_speed_mph=40), DEFAULT_STOPS).outcome(TECHNOLOGIES["bemu"])
         slower_catenary = next(site for site in slower.facility_capacities if site.is_existing_infrastructure)
-        longer_dwell_stops = tuple(replace(stop, dwell_minutes=40) if stop.key == "denver" else stop for stop in DEFAULT_STOPS)
-        longer_dwell = DecisionModel(self.assumptions, longer_dwell_stops).outcome(TECHNOLOGIES["bemu"])
+        longer_dwell = DecisionModel(replace(self.assumptions, starter_denver_layover_2_minutes=282), DEFAULT_STOPS).outcome(TECHNOLOGIES["bemu"])
         longer_dwell_catenary = next(site for site in longer_dwell.facility_capacities if site.is_existing_infrastructure)
-        assert slower_catenary.dwell_minutes > base_catenary.dwell_minutes
-        assert longer_dwell_catenary.dwell_minutes == pytest.approx(base_catenary.dwell_minutes + 20)
+        assert slower_catenary.dwell_minutes == pytest.approx(base_catenary.dwell_minutes)
+        assert longer_dwell_catenary.dwell_minutes == pytest.approx(base_catenary.dwell_minutes + 60)
 
     def test_existing_catenary_reduces_indicated_battery(self):
         enabled = self.model.outcome(TECHNOLOGIES["bemu"])

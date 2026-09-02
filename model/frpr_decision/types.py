@@ -8,6 +8,8 @@ class Segment:
     name: str
     distance_mi: float
     elevation_change_ft: float
+    southbound_minutes: float
+    northbound_minutes: float
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,8 @@ class Route:
 
     def reversed(self) -> "Route":
         return Route(f"{self.key}_reverse", f"{self.name} — reverse", tuple(
-            Segment(item.name, item.distance_mi, -item.elevation_change_ft)
+            Segment(item.name, item.distance_mi, -item.elevation_change_ft,
+                    item.northbound_minutes, item.southbound_minutes)
             for item in reversed(self.segments)
         ))
 
@@ -74,6 +77,16 @@ class Assumptions:
     tare_tonnes_per_car: float = 35.0
     load_factor: float = 0.50
     passenger_mass_kg: float = 80.0
+    starter_denver_layover_1_minutes: float = 24.0
+    starter_denver_layover_2_minutes: float = 222.0
+    starter_denver_layover_3_minutes: float = 24.0
+    starter_fort_collins_turn_1_minutes: float = 26.0
+    starter_fort_collins_turn_2_minutes: float = 16.0
+    starter_overnight_minutes: float = 480.0
+    full_denver_dwell_minutes: float = 10.0
+    full_colorado_springs_dwell_minutes: float = 10.0
+    full_pueblo_layover_minutes: float = 30.0
+    full_fort_collins_layover_minutes: float = 480.0
     moving_speed_mph: float = 65.0
     crr: float = 0.0017
     air_density_kg_m3: float = 1.02
