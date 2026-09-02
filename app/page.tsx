@@ -442,8 +442,9 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
               const afterY = y(step.batteryAfterKwh);
               const top = Math.min(beforeY, afterY);
               const height = Math.max(Math.abs(afterY - beforeY), 0.8);
+              const distanceAndTime = `${step.distanceMi === null ? "" : `${step.distanceMi.toFixed(0)} mi · `}${number.format(step.durationMinutes)} min`;
               return (
-                <div className="flow-step" key={step.key} aria-label={`${step.label}: ${step.energyKwh >= 0 ? "adds" : "uses"} ${number.format(Math.abs(step.energyKwh))} kWh${step.powerKw === null ? "" : ` at ${number.format(step.powerKw)} average kW`}; battery ends at ${number.format(step.batteryAfterKwh)} kWh`}>
+                <div className="flow-step" key={step.key} aria-label={`${step.label}, ${distanceAndTime}: ${step.energyKwh >= 0 ? "adds" : "uses"} ${number.format(Math.abs(step.energyKwh))} kWh${step.powerKw === null ? "" : ` at ${number.format(step.powerKw)} average kW`}; battery ends at ${number.format(step.batteryAfterKwh)} kWh`}>
                   <div className="flow-step-plot">
                     <i className={`flow-bar ${step.kind}`} style={{ top: `${top}%`, height: `${height}%` }} />
                     <i className="flow-level" style={{ top: `${afterY}%` }} />
@@ -453,7 +454,7 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
                     </strong>
                   </div>
                   <span>{step.label}</span>
-                  <small>{step.detail}</small>
+                  <small>{distanceAndTime}<br />{step.detail}</small>
                 </div>
               );
             })}
@@ -461,7 +462,7 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
         </div>
       </div>
       {!outcome.energyFlowRepeatable && <p className="flow-warning">The enabled sources do not restore the energy used over a repeating train-day. The chart therefore starts with a full usable battery and shows the accumulating shortfall; this configuration requires another charging source or more delivered energy.</p>}
-      <p className="range-footnote">Bars step downward for train energy use and upward for delivered charging energy. Charging labels show average grid-side kW supplied to this representative train over the configured connection time; site demand can be higher when trains overlap. Toggle a charging source to see exactly which unsupported interval controls battery size.</p>
+      <p className="range-footnote">Movement steps show route distance and travel time at the current moving-speed assumption; charging steps show configured stopover or connection time. Charging labels show average grid-side kW supplied to this representative train; site demand can be higher when trains overlap. Toggle a charging source to see exactly which unsupported interval controls battery size.</p>
     </section>
   );
 }

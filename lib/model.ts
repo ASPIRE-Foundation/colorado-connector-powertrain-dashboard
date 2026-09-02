@@ -105,6 +105,8 @@ export type EnergyFlowStep = {
   kind: "travel" | "station" | "catenary";
   energyKwh: number;
   powerKw: number | null;
+  distanceMi: number | null;
+  durationMinutes: number;
   batteryBeforeKwh: number;
   batteryAfterKwh: number;
 };
@@ -384,7 +386,9 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
     for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) {
       nodes.forEach((from, index) => {
         const to = nodes[(index + 1) % nodes.length];
-        const leg = directionEnergy(routeBetween(from, to), tech, a, batteryKwhPerCar);
+        const legRoute = routeBetween(from, to);
+        const legDistanceMi = routeDistance(legRoute);
+        const leg = directionEnergy(legRoute, tech, a, batteryKwhPerCar);
         const beforeTravel = usableBatteryKwh - deficitKwh;
         deficitKwh += leg.carrierKwh;
         if (capture) steps.push({
@@ -394,6 +398,8 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           kind: "travel",
           energyKwh: -leg.carrierKwh,
           powerKw: null,
+          distanceMi: legDistanceMi,
+          durationMinutes: legDistanceMi / a.movingSpeedMph * 60,
           batteryBeforeKwh: beforeTravel,
           batteryAfterKwh: usableBatteryKwh - deficitKwh,
         });
@@ -409,6 +415,8 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
             kind: "catenary",
             energyKwh: deliveredKwh,
             powerKw: deliveredKwh / a.chargingEfficiency / Math.max(catenary.dwellMinutes / 60, 1 / 60),
+            distanceMi: legDistanceMi,
+            durationMinutes: catenary.dwellMinutes,
             batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh - deficitKwh,
           });
@@ -421,10 +429,12 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           if (capture) steps.push({
             key: `c${circuit}-station${index}`,
             label: `${destination.name} charge`,
-            detail: `${destination.dwellMinutes}-minute stopover`,
+            detail: "Station stopover",
             kind: "station",
             energyKwh: deliveredKwh,
             powerKw: deliveredKwh / a.chargingEfficiency / Math.max(destination.dwellMinutes / 60, 1 / 60),
+            distanceMi: null,
+            durationMinutes: destination.dwellMinutes,
             batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh,
           });
