@@ -93,19 +93,31 @@ class TestDecisionModel:
 
     def test_starter_service_ignores_south_facilities(self):
         outcome = self.model.outcome(TECHNOLOGIES["bemu"])
-        assert {site.stop_key for site in outcome.facility_capacities} == {"fort-collins", "denver-westminster-catenary", "denver"}
+        assert {site.stop_key for site in outcome.facility_capacities} == {"fort-collins", "denver-westminster-catenary"}
 
     def test_existing_catenary_defaults_and_power_cap(self):
         catenary = next(stop for stop in DEFAULT_STOPS if stop.is_catenary)
         outcome = self.model.outcome(TECHNOLOGIES["bemu"])
         facility = next(site for site in outcome.facility_capacities if site.stop_key == catenary.key)
         assert catenary.maximum_power_mw == 5
-        assert catenary.dwell_minutes == 60
+        assert catenary.dwell_minutes == 0
+        assert facility.dwell_minutes == pytest.approx(2 * 8 / self.assumptions.moving_speed_mph * 60 + 20)
         assert catenary.electricity_energy_usd_per_kwh == 0.01
         assert catenary.electricity_demand_usd_per_kw_month == 0
         assert facility.peak_rate <= catenary.maximum_power_mw * 1000
         assert facility.capital_musd == 0
         assert facility.is_existing_infrastructure
+
+    def test_catenary_connection_time_uses_speed_and_denver_dwell(self):
+        base = self.model.outcome(TECHNOLOGIES["bemu"])
+        base_catenary = next(site for site in base.facility_capacities if site.is_existing_infrastructure)
+        slower = DecisionModel(replace(self.assumptions, moving_speed_mph=40), DEFAULT_STOPS).outcome(TECHNOLOGIES["bemu"])
+        slower_catenary = next(site for site in slower.facility_capacities if site.is_existing_infrastructure)
+        longer_dwell_stops = tuple(replace(stop, dwell_minutes=40) if stop.key == "denver" else stop for stop in DEFAULT_STOPS)
+        longer_dwell = DecisionModel(self.assumptions, longer_dwell_stops).outcome(TECHNOLOGIES["bemu"])
+        longer_dwell_catenary = next(site for site in longer_dwell.facility_capacities if site.is_existing_infrastructure)
+        assert slower_catenary.dwell_minutes > base_catenary.dwell_minutes
+        assert longer_dwell_catenary.dwell_minutes == pytest.approx(base_catenary.dwell_minutes + 20)
 
     def test_existing_catenary_reduces_indicated_battery(self):
         enabled = self.model.outcome(TECHNOLOGIES["bemu"])

@@ -37,9 +37,11 @@ also use the same per-train and per-car bounds for every option, avoiding an acc
 technology preference in the common vehicle platform assumptions.
 
 Battery charging and hydrogen fueling sites are configured stop by stop. An optional
-existing Denver–Westminster catenary stretch can also supply BEMU traction and charging
-energy, capped by editable MW capacity and connection time. The model uses actual power
-delivered rather than automatically charging at that cap. It sizes other sites from
+existing Castle Pines–Westminster catenary zone can also supply BEMU traction and charging
+energy, capped by editable MW capacity. Connection time is calculated from travel under
+wire plus the Denver stop, rather than entered independently. The model sends catenary
+power to concurrent traction first and battery charging second, and uses actual power
+delivered rather than automatically charging at the cap. It sizes other sites from
 replenishment demand, stopover time, scheduled arrivals, and concurrency, then prices BEMU
 grid/charger capacity and hydrogen supply/dispensing capacity from editable unit costs.
 This replaces the former $14M and $30M blanket allowances.
@@ -50,8 +52,8 @@ catenary defaults to $0.01/kWh and no demand charge; the full-corridor catenary 
 its own technology-level tariff. Attenuation reduces billed kW without reducing kWh.
 Storage capital, losses, and energy arbitrage are intentionally excluded.
 
-A representative-train-day waterfall displays every traction draw, station charge, and
-existing-catenary delivery against onboard usable battery energy. It uses the same flow
+A representative-train-day waterfall displays every off-wire traction draw, station charge,
+and integrated under-wire interval against onboard usable battery energy. It uses the same flow
 accounting as deterministic battery sizing and flags configurations that do not restore
 their energy over a repeating day.
 

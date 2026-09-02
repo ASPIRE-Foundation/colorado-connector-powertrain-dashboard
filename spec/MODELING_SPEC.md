@@ -131,14 +131,35 @@ Denver, Colorado Springs, and Pueblo and specifies a stopover at each location. 
 operating round trip, the model sums energy from the preceding enabled facility and derives
 the replenishment required per arrival.
 
-An optional existing Denver–Westminster catenary stretch is modeled as an en-route BEMU
-energy source. Its defaults are 5 MW maximum connection capacity and 60 minutes connected.
-The model applies catenary power to traction while connected and then to any accumulated
-battery deficit. Actual draw is the lesser of the energy required and the configured
-power-by-time limit; it does not assume the maximum is always delivered. Because the
-infrastructure already exists, enabling this source adds no new BEMU charging capital.
+An optional existing Castle Pines–Westminster catenary zone is modeled as an en-route BEMU
+energy source. Its default maximum connection capacity is 5 MW. Connected time is not an
+independent assumption: the model derives it from distance and moving speed for every
+under-wire leg, plus dwell at Denver (and, as the stop model expands, any other stop inside
+the zone). Starter service therefore treats Westminster–Denver–Westminster and the Denver
+dwell as one continuous connected interval. Full service uses one Castle Pines–Westminster
+connected interval in each direction. The placeholder route geometry places the Castle
+Pines boundary at milepost 90 by splitting the prior Littleton–Castle Rock screening
+segment; alignment-derived mileposts should replace this approximation later.
+
+During a connected interval, available catenary power serves concurrent traction first.
+Only remaining power can charge an accumulated battery deficit, and charging efficiency
+applies only to that battery-bound portion. Actual draw is the lesser of traction plus
+available battery headroom and the configured power-by-derived-time limit; the maximum is
+not assumed to be delivered. The catenary supplies the Denver dwell when it is enabled, so
+the separate Denver charger does not also reset the battery during the same stop. Because
+the infrastructure already exists, enabling this source adds no new BEMU charging capital.
 
 ```text
+catenary_connected_time = sum(under_wire_distance / moving_speed) + in_zone_dwell
+catenary_concurrency = max(1, ceil(fleet_round_trips_per_day
+                                    × connected_time_per_circuit / service_span))
+catenary_power_per_train = maximum_catenary_kw / catenary_concurrency
+
+direct_catenary_kwh = min(under_wire_traction_kwh,
+                           catenary_power_per_train × connected_hours)
+battery_charge_kwh = min(existing_battery_deficit + uncovered_traction_kwh,
+                         remaining_catenary_grid_kwh × charging_efficiency)
+
 concurrent_events = max(1, ceil(arrivals_per_day × stopover / service_span))
 
 BEMU_site_kw = interval_kwh / charging_efficiency / stopover_hours
@@ -161,7 +182,7 @@ utility, hydrogen-production, storage, or station engineering designs.
 
 BEMU electricity rates are specified independently for every enabled charging source.
 Each source has a volume rate, demand rate, and peak-attenuation assumption. The existing
-Denver–Westminster catenary defaults to $0.01/kWh and $0/kW-month, reflecting the current
+Castle Pines–Westminster catenary defaults to $0.01/kWh and $0/kW-month, reflecting the current
 screening assumption that BEMU use does not increase the facility's existing peak demand.
 The full-corridor catenary powertrain option retains a separate technology-level tariff.
 
@@ -309,7 +330,7 @@ modules.
 - Service extent, per-train round trips, and fleet
 - Train and energy
 - Charging and fueling unit costs
-- Charging and fueling locations, the existing catenary source, and connection times
+- Charging and fueling locations and the existing catenary source; catenary connection time is derived
 - Financial
 - Fuel, station-specific electricity tariffs, storage attenuation, and emissions
 - Technology capital and maintenance
@@ -334,9 +355,9 @@ forecasts or adopted FRPR scenarios.
 - Click-to-expand, magnitude-sorted equivalent-annual cost components for each powertrain
 - Energy composition and BEMU feasibility summary
 - Per-site BEMU kW and hydrogen kg/day / kg/hour capacity
-- Representative-train-day BEMU waterfall showing every traction draw, station charge,
-  catenary delivery, route distance, modeled travel/connection time, average charging kW,
-  and the resulting onboard usable energy
+- Representative-train-day BEMU waterfall showing off-wire traction draws, station charges,
+  integrated under-wire intervals, direct-to-traction and battery-bound catenary energy,
+  route distance, derived connection time, average supplied kW, and onboard usable energy
 - Plain-language model boundary and equation notes
 
 ## Explicit non-goals for the MVP
@@ -378,9 +399,10 @@ forecasts or adopted FRPR scenarios.
     trips and excludes south-of-Denver route and facility costs.
 17. Every BEMU electricity source has separate energy, demand, and attenuation inputs;
     storage attenuation reduces billed peak without changing annual kWh.
-18. The optional Denver–Westminster catenary supplies no more than its configured MW-by-time
-    limit, reports actual rather than maximum draw, and defaults to $0.01/kWh with no demand
-    charge or new infrastructure capital.
+18. The optional Castle Pines–Westminster catenary supplies no more than its configured
+    capacity over distance/speed-derived travel time plus in-zone dwell, reports actual
+    rather than maximum draw, serves traction before battery charging, and defaults to
+    $0.01/kWh with no demand charge or new infrastructure capital.
 19. Disabling a charging location cannot reduce indicated battery capacity by implicitly
     resetting the battery at a circuit boundary; the train-day waterfall exposes the same
     energy accounting used by the battery-sizing calculation.

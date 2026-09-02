@@ -9,7 +9,8 @@ FULL_ROUTE = Route("full", "Fort Collins — Pueblo", (
     Segment("Broomfield–Westminster", 6, -40),
     Segment("Westminster–Denver", 8, -183),
     Segment("Denver–Littleton", 10, 165),
-    Segment("Littleton–Castle Rock", 20, 862),
+    Segment("Littleton–Castle Pines", 15, 647),
+    Segment("Castle Pines–Castle Rock", 5, 215),
     Segment("Castle Rock–Monument", 20, 733),
     Segment("Monument–Colorado Springs", 20, -922),
     Segment("Colorado Springs–Fountain", 15, -488),
@@ -20,7 +21,7 @@ STARTER_ROUTE = Route("starter", "Fort Collins — Denver", FULL_ROUTE.segments[
 
 DEFAULT_STOPS = (
     ServiceStop("fort-collins", "Fort Collins", 0, 30, True, True, False, 0, 0.09, 15, 0.50),
-    ServiceStop("denver-westminster-catenary", "Denver–Westminster catenary", 57, 60, True, False, True, 5, 0.01, 0, 0),
+    ServiceStop("denver-westminster-catenary", "Castle Pines–Westminster catenary", 57, 0, True, False, True, 5, 0.01, 0, 0),
     ServiceStop("denver", "Denver", 65, 20, True, True, False, 0, 0.09, 15, 0.50),
     ServiceStop("colorado-springs", "Colorado Springs", 135, 10, False, False, False, 0, 0.09, 15, 0.50),
     ServiceStop("pueblo", "Pueblo", 185, 30, True, True, False, 0, 0.09, 15, 0.50),

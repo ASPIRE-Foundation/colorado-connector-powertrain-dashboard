@@ -33,9 +33,9 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Round trips \/ train \/ day/);
   assert.match(html, /three southbound and three northbound departures/);
   assert.match(html, /Charging, catenary &amp; fueling/);
-  assert.match(html, /Denver–Westminster catenary/);
+  assert.match(html, /Castle Pines–Westminster catenary/);
   assert.match(html, /Maximum connection capacity/);
-  assert.match(html, /Time connected/);
+  assert.match(html, /Connected time is calculated/);
   assert.match(html, /Energy rate \/ kWh/);
   assert.match(html, /Demand rate \/ kW-month/);
   assert.match(html, /actual delivered energy and power/);
@@ -51,8 +51,8 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Existing catenary/);
   assert.match(html, /kW avg/);
   assert.match(html, /mi ·/);
-  assert.match(html, /Movement steps show route distance and travel time/);
-  assert.match(html, /Toggle a charging source/);
+  assert.match(html, /supplies traction directly first/);
+  assert.match(html, /net battery change/);
   assert.match(html, /Deterministic battery sizing/);
   assert.match(html, /Battery pack \/ kWh/);
   assert.match(html, /Battery pack capital/);

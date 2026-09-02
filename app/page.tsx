@@ -59,7 +59,6 @@ const PRESETS: PresetDefinition[] = [
       "s.denver.electricityEnergyUsdPerKwh": { low: 0.06, high: 0.16 },
       "s.denver.electricityDemandUsdPerKwMonth": { low: 5, high: 30 },
       "s.denver-westminster-catenary.maximumPowerMw": { low: 2, high: 10 },
-      "s.denver-westminster-catenary.dwellMinutes": { low: 30, high: 90 },
       "s.denver-westminster-catenary.electricityEnergyUsdPerKwh": { low: 0.005, high: 0.05 },
       "t.catenary.infrastructureMUsdPerRouteMile": { low: 3, high: 7 },
       "a.hydrogenSupplyUsdPerKgDay": { low: 900, high: 2800 },
@@ -449,7 +448,7 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
                     <i className={`flow-bar ${step.kind}`} style={{ top: `${top}%`, height: `${height}%` }} />
                     <i className="flow-level" style={{ top: `${afterY}%` }} />
                     <strong style={{ top: `${Math.max(1, Math.min(91, top + height / 2))}%` }}>
-                      <span>{step.energyKwh >= 0 ? "+" : "−"}{number.format(Math.abs(step.energyKwh))} kWh</span>
+                      <span>{step.kind === "catenary" ? `Δ ${step.energyKwh < 0 ? "−" : "+"}` : step.energyKwh >= 0 ? "+" : "−"}{number.format(Math.abs(step.energyKwh))} kWh</span>
                       {step.powerKw !== null && <em>{number.format(step.powerKw)} kW avg</em>}
                     </strong>
                   </div>
@@ -462,7 +461,7 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
         </div>
       </div>
       {!outcome.energyFlowRepeatable && <p className="flow-warning">The enabled sources do not restore the energy used over a repeating train-day. The chart therefore starts with a full usable battery and shows the accumulating shortfall; this configuration requires another charging source or more delivered energy.</p>}
-      <p className="range-footnote">Movement steps show route distance and travel time at the current moving-speed assumption; charging steps show configured stopover or connection time. Charging labels show average grid-side kW supplied to this representative train; site demand can be higher when trains overlap. Toggle a charging source to see exactly which unsupported interval controls battery size.</p>
+      <p className="range-footnote">Movement time follows the current speed assumption. Each blue catenary step combines travel under wire with the Denver dwell, supplies traction directly first, and uses only surplus power to charge the battery; its Δ label is the net battery change. Station steps use configured stopover time. Power labels are average grid-side kW for this train; site demand can be higher when trains overlap.</p>
     </section>
   );
 }
@@ -637,7 +636,7 @@ export default function Home() {
               <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{money(outcome.infrastructureCapitalMUsd)} modeled infrastructure</p></div></div>
               {outcome.facilityCapacities.length ? outcome.facilityCapacities.map((facility) => (
                 <div className="capacity-site" key={facility.stopKey}>
-                  <div><strong>{facility.stopName}</strong><span>{facility.dwellMinutes}-minute {facility.isExistingInfrastructure ? "connection" : "stopover"}</span></div>
+                  <div><strong>{facility.stopName}</strong><span>{number.format(facility.dwellMinutes)}-minute {facility.isExistingInfrastructure ? "modeled connected interval" : "stopover"}</span></div>
                   <div><strong>{number.format(facility.capacity)} {facility.capacityUnit}</strong><span>{facility.maximumPowerKw ? `${(facility.maximumPowerKw / 1000).toFixed(1)} MW maximum` : facility.peakRateUnit === facility.capacityUnit ? "modeled site capacity" : `${number.format(facility.peakRate)} ${facility.peakRateUnit} peak`}</span></div>
                   <b>{facility.isExistingInfrastructure ? "Existing" : money(facility.capitalMUsd)}</b>
                 </div>
@@ -679,7 +678,7 @@ export default function Home() {
             <div className="capacity-site"><div><strong>Corridor billing demand</strong><span>{number.format(catenary.unattenuatedPeakDemandKw)} kW before attenuation</span></div><div><strong>{number.format(catenary.billedPeakDemandKw)} kW billed</strong><span>${catenary.technology.electricityDemandUsdPerKwMonth.toFixed(0)}/kW-month</span></div><b>{money(catenary.annualDemandChargeMUsd)}</b></div>
           </article>
         </div>
-        <p className="range-footnote">Each BEMU source uses its own volume rate, demand rate, and peak attenuation. The Denver–Westminster catenary is capped at its specified connection capacity; modeled cost uses actual delivered energy and power, not the maximum. Storage capital and losses remain outside this screen.</p>
+        <p className="range-footnote">Each BEMU source uses its own volume rate, demand rate, and peak attenuation. The Castle Pines–Westminster catenary is capped at its specified capacity; connection time is derived from travel under wire plus Denver dwell, and modeled cost uses actual delivered energy and power. Storage capital and losses remain outside this screen.</p>
       </section>
 
         </div>
@@ -792,17 +791,17 @@ export default function Home() {
             <div className="stop-config-list">
               {stops.filter((stop) => assumptions.servicePattern === "full" || stop.key === "fort-collins" || stop.key === "denver" || stop.isCatenary).map((stop) => (
                 <div className={`stop-config ${stop.isCatenary ? "catenary-config" : ""}`} key={stop.key}>
-                  <div className="stop-config-heading"><strong>{stop.name}</strong><span>MP {stop.milepost}</span></div>
+                  <div className="stop-config-heading"><strong>{stop.name}</strong><span>{stop.isCatenary ? "MP 57–90" : `MP ${stop.milepost}`}</span></div>
                   <div className="facility-toggles">
                     <label><input type="checkbox" checked={stop.bemuEnabled} onChange={(event) => updateStop(stop.key, { bemuEnabled: event.target.checked })} /> {stop.isCatenary ? "Use for BEMU charging" : "Battery charging"}</label>
                     {!stop.isCatenary && <label><input type="checkbox" checked={stop.hydrogenEnabled} onChange={(event) => updateStop(stop.key, { hydrogenEnabled: event.target.checked })} /> Hydrogen fueling</label>}
                   </div>
                   {stop.isCatenary && <Slider label="Maximum connection capacity" value={stop.maximumPowerMw} min={0.05} max={15} step={0.05} digits={2} unit=" MW" onChange={(value) => updateStop(stop.key, { maximumPowerMw: value })} {...bandProps(`s.${stop.key}.maximumPowerMw`)} />}
-                  <Slider label={stop.isCatenary ? "Time connected" : "Stopover"} value={stop.dwellMinutes} min={5} max={120} step={5} digits={0} unit=" min" onChange={(value) => updateStop(stop.key, { dwellMinutes: value })} {...bandProps(`s.${stop.key}.dwellMinutes`)} />
+                  {!stop.isCatenary && <Slider label="Stopover" value={stop.dwellMinutes} min={5} max={120} step={5} digits={0} unit=" min" onChange={(value) => updateStop(stop.key, { dwellMinutes: value })} {...bandProps(`s.${stop.key}.dwellMinutes`)} />}
                   <Slider label="Energy rate / kWh" value={stop.electricityEnergyUsdPerKwh} min={0} max={0.3} step={0.005} digits={3} unit=" $" onChange={(value) => updateStop(stop.key, { electricityEnergyUsdPerKwh: value })} {...bandProps(`s.${stop.key}.electricityEnergyUsdPerKwh`)} />
                   <Slider label="Demand rate / kW-month" value={stop.electricityDemandUsdPerKwMonth} min={0} max={60} step={1} digits={0} unit=" $" onChange={(value) => updateStop(stop.key, { electricityDemandUsdPerKwMonth: value })} {...bandProps(`s.${stop.key}.electricityDemandUsdPerKwMonth`)} />
                   <Slider label="Peak attenuation from storage" value={stop.peakDemandAttenuationFraction} min={0} max={1} step={0.05} displayFactor={100} digits={0} unit="%" onChange={(value) => updateStop(stop.key, { peakDemandAttenuationFraction: value })} {...bandProps(`s.${stop.key}.peakDemandAttenuationFraction`)} />
-                  {stop.isCatenary && <p className="input-note">Existing infrastructure: no new BEMU charging capital is assigned. The model draws only the energy needed, up to the power and connection-time limit.</p>}
+                  {stop.isCatenary && <p className="input-note">Existing infrastructure: no new BEMU charging capital is assigned. Connected time is calculated from travel between Westminster and Castle Pines plus dwell at Denver. While enabled, the catenary supplies traction first and supersedes the separate Denver charger during that dwell.</p>}
                 </div>
               ))}
             </div>
@@ -823,7 +822,7 @@ export default function Home() {
                 {tech.key === "diesel" && <p className="technology-note">Diesel-electric transmission is assumed; “Diesel locomotive” keeps the option label neutral until FRPR identifies specific equipment.</p>}
                 {(tech.key === "bemu" || tech.key === "hydrogen") && <p className="technology-note">Infrastructure capital is calculated from enabled sites, replenishment demand, stopover time, and the capacity-cost inputs above.</p>}
                 {tech.key === "bemu" && <p className="technology-note">Electricity energy, demand, and peak-attenuation assumptions are configured separately at each enabled source above.</p>}
-                {tech.key === "catenary" && <p className="technology-note">These tariff inputs apply to the full-corridor catenary option. The existing Denver–Westminster stretch used by BEMU is configured separately above.</p>}
+                {tech.key === "catenary" && <p className="technology-note">These tariff inputs apply to the full-corridor catenary option. The existing Castle Pines–Westminster stretch used by BEMU is configured separately above.</p>}
                 <Slider label="Fixed vehicle / train" value={tech.fixedVehicleCostMUsd} min={0} max={15} step={0.25} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedVehicleCostMUsd", v)} {...bandProps(`t.${tech.key}.fixedVehicleCostMUsd`)} />
                 <Slider label={tech.key === "bemu" ? "Non-battery vehicle / car" : "Vehicle / car"} value={tech.vehicleCostMUsdPerCar} min={0.2} max={3} step={0.05} digits={2} unit=" M$" onChange={(v) => updateTechnology(tech.key, "vehicleCostMUsdPerCar", v)} {...bandProps(`t.${tech.key}.vehicleCostMUsdPerCar`)} />
                 {tech.key !== "bemu" && tech.key !== "hydrogen" && <Slider label="Fixed infrastructure" value={tech.fixedInfrastructureMUsd} min={0} max={100} step={1} digits={0} unit=" M$" onChange={(v) => updateTechnology(tech.key, "fixedInfrastructureMUsd", v)} {...bandProps(`t.${tech.key}.fixedInfrastructureMUsd`)} />}
@@ -854,7 +853,7 @@ export default function Home() {
             <Metric label="Battery pack capital" value={money(bemu.batteryCapitalMUsd ?? 0)} note={`${assumptions.totalTrains} trains at $${number.format(assumptions.batteryCostUsdPerKwh)}/kWh`} />
             <Metric label="Charging infrastructure" value={money(bemu.infrastructureCapitalMUsd)} note={`${bemu.indicativeChargerMw?.toFixed(1)} MW peak · ${(bemu.billedPeakDemandKw / 1000).toFixed(1)} MW billed`} />
           </div>
-          <p>Capacity is solved iteratively because battery capacity adds mass, which increases energy use and therefore changes the required battery. Station chargers can replenish the accumulated deficit; the existing catenary offsets energy only up to its configured MW-by-time limit.</p>
+          <p>Capacity is solved iteratively because battery capacity adds mass, which increases energy use and therefore changes the required battery. Station chargers can replenish the accumulated deficit. Existing catenary serves traction directly while the train is under wire, then charges the battery with surplus capacity during travel and Denver dwell.</p>
         </div>
         <div className="formula-card">
           <span>Battery calculation path</span>

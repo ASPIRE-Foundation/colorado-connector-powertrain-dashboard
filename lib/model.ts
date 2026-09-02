@@ -150,6 +150,8 @@ export type AssumptionBand = { low: number; high: number };
 export type AssumptionBands = Record<string, AssumptionBand>;
 export type CostRange = { technology: Technology; lowMUsdPerYear: number; baseMUsdPerYear: number; highMUsdPerYear: number };
 
+type RoutePoint = ServiceStop["key"] | "castle-pines-catenary-boundary";
+
 const segment = (name: string, distanceMi: number, elevationChangeFt: number): Segment => ({ name, distanceMi, elevationChangeFt });
 
 export const FULL_ROUTE: Route = {
@@ -164,7 +166,8 @@ export const FULL_ROUTE: Route = {
     segment("Broomfield–Westminster", 6, -40),
     segment("Westminster–Denver", 8, -183),
     segment("Denver–Littleton", 10, 165),
-    segment("Littleton–Castle Rock", 20, 862),
+    segment("Littleton–Castle Pines", 15, 647),
+    segment("Castle Pines–Castle Rock", 5, 215),
     segment("Castle Rock–Monument", 20, 733),
     segment("Monument–Colorado Springs", 20, -922),
     segment("Colorado Springs–Fountain", 15, -488),
@@ -182,7 +185,7 @@ export const STARTER_ROUTE: Route = {
 
 export const DEFAULT_STOPS: ServiceStop[] = [
   { key: "fort-collins", name: "Fort Collins", milepost: 0, dwellMinutes: 30, bemuEnabled: true, hydrogenEnabled: true, isCatenary: false, maximumPowerMw: 0, electricityEnergyUsdPerKwh: 0.09, electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5 },
-  { key: "denver-westminster-catenary", name: "Denver–Westminster catenary", milepost: 57, dwellMinutes: 60, bemuEnabled: true, hydrogenEnabled: false, isCatenary: true, maximumPowerMw: 5, electricityEnergyUsdPerKwh: 0.01, electricityDemandUsdPerKwMonth: 0, peakDemandAttenuationFraction: 0 },
+  { key: "denver-westminster-catenary", name: "Castle Pines–Westminster catenary", milepost: 57, dwellMinutes: 0, bemuEnabled: true, hydrogenEnabled: false, isCatenary: true, maximumPowerMw: 5, electricityEnergyUsdPerKwh: 0.01, electricityDemandUsdPerKwMonth: 0, peakDemandAttenuationFraction: 0 },
   { key: "denver", name: "Denver", milepost: 65, dwellMinutes: 20, bemuEnabled: true, hydrogenEnabled: true, isCatenary: false, maximumPowerMw: 0, electricityEnergyUsdPerKwh: 0.09, electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5 },
   { key: "colorado-springs", name: "Colorado Springs", milepost: 135, dwellMinutes: 10, bemuEnabled: false, hydrogenEnabled: false, isCatenary: false, maximumPowerMw: 0, electricityEnergyUsdPerKwh: 0.09, electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5 },
   { key: "pueblo", name: "Pueblo", milepost: 185, dwellMinutes: 30, bemuEnabled: true, hydrogenEnabled: true, isCatenary: false, maximumPowerMw: 0, electricityEnergyUsdPerKwh: 0.09, electricityDemandUsdPerKwMonth: 15, peakDemandAttenuationFraction: 0.5 },
@@ -211,13 +214,13 @@ const G = 9.81;
 const M_PER_MILE = 1609.344;
 const M_PER_FOOT = 0.3048;
 const J_PER_KWH = 3.6e6;
-const STOP_INDEX: Record<ServiceStop["key"], number> = { "fort-collins": 0, "denver-westminster-catenary": 4, denver: 5, "colorado-springs": 9, pueblo: 11 };
+const STOP_INDEX: Record<RoutePoint, number> = { "fort-collins": 0, "denver-westminster-catenary": 4, denver: 5, "castle-pines-catenary-boundary": 7, "colorado-springs": 10, pueblo: 12 };
 
 function routeDistance(route: Route) { return route.segments.reduce((sum, item) => sum + item.distanceMi, 0); }
 export function serviceRoute(pattern: ServicePattern) { return pattern === "starter" ? STARTER_ROUTE : FULL_ROUTE; }
 function dailyRoundTrips(a: Assumptions) { return a.totalTrains * a.roundTripsPerTrainPerDay; }
 function reverseRoute(route: Route): Route { return { ...route, key: `${route.key}-reverse`, segments: [...route.segments].reverse().map((item) => ({ ...item, elevationChangeFt: -item.elevationChangeFt })) }; }
-function routeBetween(from: ServiceStop["key"], to: ServiceStop["key"]): Route {
+function routeBetween(from: RoutePoint, to: RoutePoint): Route {
   const start = STOP_INDEX[from];
   const end = STOP_INDEX[to];
   const route: Route = { ...FULL_ROUTE, key: `${from}-${to}`, segments: FULL_ROUTE.segments.slice(Math.min(start, end), Math.max(start, end)) };
@@ -253,18 +256,62 @@ function serviceCircuitDefinitions(pattern: ServicePattern): ServiceStop["key"][
     ? [["fort-collins", "denver"]]
     : [["fort-collins", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver"]];
 }
-function energyCircuitDefinitions(pattern: ServicePattern): ServiceStop["key"][][] {
+function energyCircuitDefinitions(pattern: ServicePattern): RoutePoint[][] {
   return pattern === "starter"
     ? [["fort-collins", "denver-westminster-catenary", "denver", "denver-westminster-catenary"]]
-    : [["fort-collins", "denver-westminster-catenary", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver", "denver-westminster-catenary"]];
+    : [["fort-collins", "denver-westminster-catenary", "denver", "castle-pines-catenary-boundary", "colorado-springs", "pueblo", "colorado-springs", "castle-pines-catenary-boundary", "denver", "denver-westminster-catenary"]];
 }
 function circuitLegEnergies(nodes: ServiceStop["key"][], tech: Technology, a: Assumptions, batteryKwhPerCar = 0) { return nodes.map((from, index) => directionEnergy(routeBetween(from, nodes[(index + 1) % nodes.length]), tech, a, batteryKwhPerCar)); }
 
+function usesCatenaryWire(from: RoutePoint, to: RoutePoint) {
+  const pair = new Set<RoutePoint>([from, to]);
+  return (pair.has("denver-westminster-catenary") && pair.has("denver"))
+    || (pair.has("denver") && pair.has("castle-pines-catenary-boundary"));
+}
+
+function catenaryConnectedMinutes(a: Assumptions, stops: ServiceStop[]) {
+  const nodes = energyCircuitDefinitions(a.servicePattern)[0];
+  let minutes = 0;
+  nodes.forEach((from, index) => {
+    const to = nodes[(index + 1) % nodes.length];
+    if (!usesCatenaryWire(from, to)) return;
+    minutes += routeDistance(routeBetween(from, to)) / a.movingSpeedMph * 60;
+    if (to === "denver") minutes += stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
+  });
+  return minutes;
+}
+
+function catenaryIntervalMinutes(a: Assumptions, stops: ServiceStop[]) {
+  const total = catenaryConnectedMinutes(a, stops);
+  return a.servicePattern === "starter" ? total : total / 2;
+}
+
+function catenarySharedPowerKw(a: Assumptions, stops: ServiceStop[], catenary: ServiceStop) {
+  const concurrentTrains = Math.max(1, Math.ceil(dailyRoundTrips(a) * catenaryConnectedMinutes(a, stops) / (a.serviceSpanHours * 60)));
+  return catenary.maximumPowerMw * 1000 / concurrentTrains;
+}
+
+function applyCatenaryEnergy(deficitKwh: number, tractionKwh: number, durationMinutes: number, sharedPowerKw: number, chargingEfficiency: number) {
+  const availableGridKwh = sharedPowerKw * durationMinutes / 60;
+  const directTractionKwh = Math.min(tractionKwh, availableGridKwh);
+  const deficitAfterTractionKwh = deficitKwh + tractionKwh - directTractionKwh;
+  const remainingGridKwh = Math.max(0, availableGridKwh - directTractionKwh);
+  const batteryKwhDelivered = Math.min(deficitAfterTractionKwh, remainingGridKwh * chargingEfficiency);
+  const gridKwh = directTractionKwh + batteryKwhDelivered / Math.max(chargingEfficiency, 0.01);
+  return {
+    deficitKwh: deficitAfterTractionKwh - batteryKwhDelivered,
+    gridKwh,
+    directTractionKwh,
+    batteryKwhDelivered,
+  };
+}
+
 function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], batteryKwhPerCar = 0) {
-  const events: { stopKey: ServiceStop["key"]; gridKwh: number; carrierUnits: number }[] = [];
+  const events: { stopKey: ServiceStop["key"]; gridKwh: number; carrierUnits: number; peakKw?: number }[] = [];
   let maxGapKwh = 0;
   if (tech.key === "bemu") {
     const catenary = stops.find((stop) => stop.isCatenary)!;
+    const sharedCatenaryPowerKw = catenarySharedPowerKw(a, stops, catenary);
     energyCircuitDefinitions(a.servicePattern).forEach((sourceNodes) => {
       const firstUnlimited = sourceNodes.findIndex((key) => {
         const stop = stops.find((item) => item.key === key);
@@ -275,25 +322,30 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
       const nodes = startIndex > 0
         ? [...sourceNodes.slice(startIndex), ...sourceNodes.slice(0, startIndex)]
         : sourceNodes;
-      const catenaryEventsPerDay = 2 * dailyRoundTrips(a);
-      const catenaryConcurrency = Math.max(1, Math.ceil(catenaryEventsPerDay * catenary.dwellMinutes / (a.serviceSpanHours * 60)));
-      const catenaryBatteryKwhAvailable = catenary.maximumPowerMw * 1000 * (catenary.dwellMinutes / 60) / catenaryConcurrency * a.chargingEfficiency;
       let deficitKwh = 0;
       nodes.forEach((from, index) => {
         const to = nodes[(index + 1) % nodes.length];
-        const leg = directionEnergy(routeBetween(from, to), tech, a, batteryKwhPerCar);
-        const usesCatenary = catenary.bemuEnabled && ((from === catenary.key && to === "denver") || (from === "denver" && to === catenary.key));
+        const legRoute = routeBetween(from, to);
+        const leg = directionEnergy(legRoute, tech, a, batteryKwhPerCar);
+        const travelMinutes = routeDistance(legRoute) / a.movingSpeedMph * 60;
+        const usesCatenary = catenary.bemuEnabled && usesCatenaryWire(from, to);
         if (usesCatenary) {
-          const deficitBeforeSupply = deficitKwh + leg.carrierKwh;
-          const batteryKwhDelivered = Math.min(deficitBeforeSupply, catenaryBatteryKwhAvailable);
-          deficitKwh = deficitBeforeSupply - batteryKwhDelivered;
-          events.push({ stopKey: catenary.key, gridKwh: batteryKwhDelivered / a.chargingEfficiency, carrierUnits: batteryKwhDelivered });
+          const supplied = applyCatenaryEnergy(deficitKwh, leg.carrierKwh, travelMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
+          deficitKwh = supplied.deficitKwh;
+          events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, peakKw: supplied.gridKwh / Math.max(travelMinutes / 60, 1 / 60) });
         } else {
           deficitKwh += leg.carrierKwh;
         }
         maxGapKwh = Math.max(maxGapKwh, deficitKwh);
+        if (usesCatenary && to === "denver") {
+          const denverDwellMinutes = stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
+          const supplied = applyCatenaryEnergy(deficitKwh, 0, denverDwellMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
+          deficitKwh = supplied.deficitKwh;
+          events.push({ stopKey: catenary.key, gridKwh: supplied.gridKwh, carrierUnits: supplied.gridKwh, peakKw: supplied.gridKwh / Math.max(denverDwellMinutes / 60, 1 / 60) });
+        }
         const destination = stops.find((stop) => stop.key === to);
-        if (destination?.bemuEnabled && !destination.isCatenary) {
+        const catenaryOwnsDenverDwell = catenary.bemuEnabled && destination?.key === "denver" && usesCatenary;
+        if (destination?.bemuEnabled && !destination.isCatenary && !catenaryOwnsDenverDwell) {
           events.push({ stopKey: destination.key, gridKwh: deficitKwh / a.chargingEfficiency, carrierUnits: deficitKwh });
           deficitKwh = 0;
         }
@@ -323,20 +375,23 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
     });
   }
 
-  const activeStopKeys = new Set((tech.key === "bemu" ? energyCircuitDefinitions(a.servicePattern) : serviceCircuitDefinitions(a.servicePattern)).flat());
-  const facilities = stops.filter((stop) => activeStopKeys.has(stop.key) && (tech.key === "bemu" ? stop.bemuEnabled : stop.hydrogenEnabled)).map((stop): FacilityCapacity => {
+  const activeStopKeys = new Set<RoutePoint>((tech.key === "bemu" ? energyCircuitDefinitions(a.servicePattern) : serviceCircuitDefinitions(a.servicePattern)).flat());
+  const facilities = stops.filter((stop) => activeStopKeys.has(stop.key)
+    && (tech.key === "bemu" ? stop.bemuEnabled : stop.hydrogenEnabled)
+    && (tech.key !== "bemu" || stop.isCatenary || events.some((event) => event.stopKey === stop.key))).map((stop): FacilityCapacity => {
     const siteEvents = events.filter((event) => event.stopKey === stop.key);
+    const modeledDwellMinutes = stop.isCatenary ? catenaryIntervalMinutes(a, stops) : stop.dwellMinutes;
     const eventsPerDay = siteEvents.length * dailyRoundTrips(a);
-    const concurrency = Math.max(1, Math.ceil(eventsPerDay * stop.dwellMinutes / (a.serviceSpanHours * 60)));
+    const concurrency = stop.isCatenary ? Math.max(1, Math.ceil(dailyRoundTrips(a) * catenaryConnectedMinutes(a, stops) / (a.serviceSpanHours * 60))) : Math.max(1, Math.ceil(eventsPerDay * modeledDwellMinutes / (a.serviceSpanHours * 60)));
     const maxEventKwh = Math.max(0, ...siteEvents.map((event) => event.gridKwh));
     const maxEventUnits = Math.max(0, ...siteEvents.map((event) => event.carrierUnits));
     if (tech.key === "bemu") {
-      const capacityKw = maxEventKwh / Math.max(stop.dwellMinutes / 60, 1 / 60) * concurrency;
+      const capacityKw = stop.isCatenary ? Math.max(0, ...siteEvents.map((event) => event.peakKw ?? 0)) * concurrency : maxEventKwh / Math.max(modeledDwellMinutes / 60, 1 / 60) * concurrency;
       const maximumPowerKw = stop.isCatenary ? stop.maximumPowerMw * 1000 : null;
       const actualPeakKw = maximumPowerKw === null ? capacityKw : Math.min(capacityKw, maximumPowerKw);
       const billedPeakKw = actualPeakKw * (1 - Math.min(1, Math.max(0, stop.peakDemandAttenuationFraction)));
       const annualEnergyKwh = siteEvents.reduce((sum, event) => sum + event.gridKwh, 0) * dailyRoundTrips(a) * a.serviceDaysPerYear;
-      return { stopKey: stop.key, stopName: stop.name, dwellMinutes: stop.dwellMinutes, capacity: actualPeakKw, capacityUnit: "kW", peakRate: actualPeakKw, peakRateUnit: "kW", capitalMUsd: stop.isCatenary ? 0 : actualPeakKw * (a.gridUpgradeUsdPerKw + a.chargerEquipmentUsdPerKw) / 1e6, annualEnergyKwh, energyRateUsdPerKwh: stop.electricityEnergyUsdPerKwh, demandRateUsdPerKwMonth: stop.electricityDemandUsdPerKwMonth, billedPeakKw, maximumPowerKw, isExistingInfrastructure: stop.isCatenary };
+      return { stopKey: stop.key, stopName: stop.name, dwellMinutes: modeledDwellMinutes, capacity: actualPeakKw, capacityUnit: "kW", peakRate: actualPeakKw, peakRateUnit: "kW", capitalMUsd: stop.isCatenary ? 0 : actualPeakKw * (a.gridUpgradeUsdPerKw + a.chargerEquipmentUsdPerKw) / 1e6, annualEnergyKwh, energyRateUsdPerKwh: stop.electricityEnergyUsdPerKwh, demandRateUsdPerKwMonth: stop.electricityDemandUsdPerKwMonth, billedPeakKw, maximumPowerKw, isExistingInfrastructure: stop.isCatenary };
     }
     const dailyKg = siteEvents.reduce((sum, event) => sum + event.carrierUnits, 0) * dailyRoundTrips(a);
     const peakKgHour = maxEventUnits / Math.max(stop.dwellMinutes / 60, 1 / 60) * concurrency;
@@ -370,13 +425,12 @@ function requiredFleet(a: Assumptions, stops: ServiceStop[]) {
 function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], batteryKwhPerCar: number, usableBatteryKwh: number) {
   const nodes = energyCircuitDefinitions(a.servicePattern)[0];
   const catenary = stops.find((stop) => stop.isCatenary)!;
-  const catenaryEventsPerDay = 2 * dailyRoundTrips(a);
-  const catenaryConcurrency = Math.max(1, Math.ceil(catenaryEventsPerDay * catenary.dwellMinutes / (a.serviceSpanHours * 60)));
-  const catenaryBatteryKwhAvailable = catenary.maximumPowerMw * 1000 * (catenary.dwellMinutes / 60) / catenaryConcurrency * a.chargingEfficiency;
-  const shortName = (key: ServiceStop["key"]) => ({
+  const sharedCatenaryPowerKw = catenarySharedPowerKw(a, stops, catenary);
+  const shortName = (key: RoutePoint) => ({
     "fort-collins": "Fort Collins",
     "denver-westminster-catenary": "Westminster",
     denver: "Denver",
+    "castle-pines-catenary-boundary": "Castle Pines",
     "colorado-springs": "Colorado Springs",
     pueblo: "Pueblo",
   })[key];
@@ -384,8 +438,42 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
     let deficitKwh = initialDeficitKwh;
     const steps: EnergyFlowStep[] = [];
     for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) {
-      nodes.forEach((from, index) => {
+      for (let index = 0; index < nodes.length; index += 1) {
+        const startsCatenaryInterval = catenary.bemuEnabled
+          && usesCatenaryWire(nodes[index], nodes[(index + 1) % nodes.length])
+          && nodes[(index + 1) % nodes.length] === "denver";
+        if (startsCatenaryInterval) {
+          const from = nodes[index];
+          const via = nodes[(index + 1) % nodes.length];
+          const to = nodes[(index + 2) % nodes.length];
+          const firstRoute = routeBetween(from, via);
+          const secondRoute = routeBetween(via, to);
+          const distanceMi = routeDistance(firstRoute) + routeDistance(secondRoute);
+          const travelMinutes = distanceMi / a.movingSpeedMph * 60;
+          const denverDwellMinutes = stops.find((stop) => stop.key === "denver")?.dwellMinutes ?? 0;
+          const durationMinutes = travelMinutes + denverDwellMinutes;
+          const tractionKwh = directionEnergy(firstRoute, tech, a, batteryKwhPerCar).carrierKwh
+            + directionEnergy(secondRoute, tech, a, batteryKwhPerCar).carrierKwh;
+          const beforeKwh = usableBatteryKwh - deficitKwh;
+          const supplied = applyCatenaryEnergy(deficitKwh, tractionKwh, durationMinutes, sharedCatenaryPowerKw, a.chargingEfficiency);
+          deficitKwh = supplied.deficitKwh;
+          if (capture) steps.push({
+            key: `c${circuit}-cat${index}`,
+            label: `${shortName(from)} → ${shortName(via)} → ${shortName(to)} under wire`,
+            detail: `${Math.round(supplied.directTractionKwh).toLocaleString()} kWh direct traction · ${Math.round(supplied.batteryKwhDelivered).toLocaleString()} kWh to battery`,
+            kind: "catenary",
+            energyKwh: usableBatteryKwh - deficitKwh - beforeKwh,
+            powerKw: supplied.gridKwh / Math.max(durationMinutes / 60, 1 / 60),
+            distanceMi,
+            durationMinutes,
+            batteryBeforeKwh: beforeKwh,
+            batteryAfterKwh: usableBatteryKwh - deficitKwh,
+          });
+          index += 1;
+          continue;
+        }
         const to = nodes[(index + 1) % nodes.length];
+        const from = nodes[index];
         const legRoute = routeBetween(from, to);
         const legDistanceMi = routeDistance(legRoute);
         const leg = directionEnergy(legRoute, tech, a, batteryKwhPerCar);
@@ -401,26 +489,8 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           distanceMi: legDistanceMi,
           durationMinutes: legDistanceMi / a.movingSpeedMph * 60,
           batteryBeforeKwh: beforeTravel,
-          batteryAfterKwh: usableBatteryKwh - deficitKwh,
-        });
-        const usesCatenary = catenary.bemuEnabled && ((from === catenary.key && to === "denver") || (from === "denver" && to === catenary.key));
-        if (usesCatenary) {
-          const deliveredKwh = Math.min(deficitKwh, catenaryBatteryKwhAvailable);
-          const beforeCharge = usableBatteryKwh - deficitKwh;
-          deficitKwh -= deliveredKwh;
-          if (capture) steps.push({
-            key: `c${circuit}-cat${index}`,
-            label: "Existing catenary",
-            detail: `${shortName(from)} → ${shortName(to)} connection`,
-            kind: "catenary",
-            energyKwh: deliveredKwh,
-            powerKw: deliveredKwh / a.chargingEfficiency / Math.max(catenary.dwellMinutes / 60, 1 / 60),
-            distanceMi: legDistanceMi,
-            durationMinutes: catenary.dwellMinutes,
-            batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh - deficitKwh,
           });
-        }
         const destination = stops.find((stop) => stop.key === to);
         if (destination?.bemuEnabled && !destination.isCatenary) {
           const deliveredKwh = deficitKwh;
@@ -439,7 +509,7 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
             batteryAfterKwh: usableBatteryKwh,
           });
         }
-      });
+      }
     }
     return { endDeficitKwh: deficitKwh, steps };
   };

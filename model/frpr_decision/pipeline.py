@@ -12,7 +12,8 @@ class DecisionModel:
     M_PER_MILE = 1609.344
     M_PER_FOOT = 0.3048
     J_PER_KWH = 3.6e6
-    STOP_INDEX = {"fort-collins": 0, "denver-westminster-catenary": 4, "denver": 5, "colorado-springs": 9, "pueblo": 11}
+    STOP_INDEX = {"fort-collins": 0, "denver-westminster-catenary": 4, "denver": 5,
+                  "castle-pines-catenary-boundary": 7, "colorado-springs": 10, "pueblo": 12}
 
     def __init__(self, assumptions: Assumptions, stops: tuple[ServiceStop, ...] = DEFAULT_STOPS):
         self.assumptions = assumptions
@@ -53,7 +54,9 @@ class DecisionModel:
     def energy_circuits(pattern: str) -> tuple[tuple[str, ...], ...]:
         if pattern == "starter":
             return (("fort-collins", "denver-westminster-catenary", "denver", "denver-westminster-catenary"),)
-        return (("fort-collins", "denver-westminster-catenary", "denver", "colorado-springs", "pueblo", "colorado-springs", "denver", "denver-westminster-catenary"),)
+        return (("fort-collins", "denver-westminster-catenary", "denver", "castle-pines-catenary-boundary",
+                 "colorado-springs", "pueblo", "colorado-springs", "castle-pines-catenary-boundary",
+                 "denver", "denver-westminster-catenary"),)
 
     def service_route(self) -> Route:
         return STARTER_ROUTE if self.assumptions.service_pattern == "starter" else FULL_ROUTE
@@ -66,6 +69,44 @@ class DecisionModel:
         route = Route(f"{origin}-{destination}", f"{origin}-{destination}", FULL_ROUTE.segments[min(start, end):max(start, end)])
         return route if start < end else route.reversed()
 
+    @staticmethod
+    def uses_catenary_wire(origin: str, destination: str) -> bool:
+        pair = {origin, destination}
+        return pair == {"denver-westminster-catenary", "denver"} or pair == {"denver", "castle-pines-catenary-boundary"}
+
+    def catenary_connected_minutes(self) -> float:
+        a = self.assumptions
+        nodes = self.energy_circuits(a.service_pattern)[0]
+        minutes = 0.0
+        for index, origin in enumerate(nodes):
+            destination = nodes[(index + 1) % len(nodes)]
+            if not self.uses_catenary_wire(origin, destination):
+                continue
+            minutes += self.route_between(origin, destination).distance_mi / a.moving_speed_mph * 60
+            if destination == "denver":
+                minutes += next(stop.dwell_minutes for stop in self.stops if stop.key == "denver")
+        return minutes
+
+    def catenary_interval_minutes(self) -> float:
+        total = self.catenary_connected_minutes()
+        return total if self.assumptions.service_pattern == "starter" else total / 2
+
+    def catenary_shared_power_kw(self, catenary: ServiceStop) -> float:
+        a = self.assumptions
+        concurrent_trains = max(1, ceil(self.daily_round_trips() * self.catenary_connected_minutes() / (a.service_span_hours * 60)))
+        return catenary.maximum_power_mw * 1000 / concurrent_trains
+
+    @staticmethod
+    def apply_catenary_energy(deficit_kwh: float, traction_kwh: float, duration_minutes: float,
+                               shared_power_kw: float, charging_efficiency: float) -> tuple[float, float]:
+        available_grid_kwh = shared_power_kw * duration_minutes / 60
+        direct_traction_kwh = min(traction_kwh, available_grid_kwh)
+        deficit_after_traction_kwh = deficit_kwh + traction_kwh - direct_traction_kwh
+        remaining_grid_kwh = max(0.0, available_grid_kwh - direct_traction_kwh)
+        battery_kwh_delivered = min(deficit_after_traction_kwh, remaining_grid_kwh * charging_efficiency)
+        grid_kwh = direct_traction_kwh + battery_kwh_delivered / max(charging_efficiency, 0.01)
+        return deficit_after_traction_kwh - battery_kwh_delivered, grid_kwh
+
     def required_fleet(self) -> int:
         a = self.assumptions
         def needed(nodes: tuple[str, ...]) -> int:
@@ -76,38 +117,43 @@ class DecisionModel:
 
     def facility_sizing(self, technology: Technology, battery_kwh_per_car: float = 0.0) -> tuple[tuple[FacilityCapacity, ...], float]:
         a = self.assumptions
-        events: list[tuple[str, float, float]] = []
+        events: list[tuple[str, float, float, float | None]] = []
         max_gap_kwh = 0.0
         if technology.key == "bemu":
             catenary = next(stop for stop in self.stops if stop.is_catenary)
+            shared_catenary_power_kw = self.catenary_shared_power_kw(catenary)
             for source_nodes in self.energy_circuits(a.service_pattern):
                 first_unlimited = next((index for index, key in enumerate(source_nodes)
-                                        if (stop := next(item for item in self.stops if item.key == key)).bemu_enabled and not stop.is_catenary), -1)
+                                        if (stop := next((item for item in self.stops if item.key == key), None))
+                                        and stop.bemu_enabled and not stop.is_catenary), -1)
                 catenary_start = source_nodes.index("denver") if catenary.bemu_enabled else -1
                 start_index = first_unlimited if first_unlimited >= 0 else catenary_start if catenary_start >= 0 else 0
                 nodes = source_nodes[start_index:] + source_nodes[:start_index]
-                catenary_events_per_day = 2 * self.daily_round_trips()
-                catenary_concurrency = max(1, ceil(catenary_events_per_day * catenary.dwell_minutes / (a.service_span_hours * 60)))
-                catenary_battery_kwh_available = catenary.maximum_power_mw * 1000 * catenary.dwell_minutes / 60 / catenary_concurrency * a.charging_efficiency
                 deficit_kwh = 0.0
                 for index, origin in enumerate(nodes):
                     destination = nodes[(index + 1) % len(nodes)]
-                    leg = self.direction_energy(self.route_between(origin, destination), technology, battery_kwh_per_car)
-                    uses_catenary = catenary.bemu_enabled and (
-                        (origin == catenary.key and destination == "denver")
-                        or (origin == "denver" and destination == catenary.key)
-                    )
+                    leg_route = self.route_between(origin, destination)
+                    leg = self.direction_energy(leg_route, technology, battery_kwh_per_car)
+                    travel_minutes = leg_route.distance_mi / a.moving_speed_mph * 60
+                    uses_catenary = catenary.bemu_enabled and self.uses_catenary_wire(origin, destination)
                     if uses_catenary:
-                        deficit_before_supply = deficit_kwh + leg.carrier_kwh
-                        delivered_kwh = min(deficit_before_supply, catenary_battery_kwh_available)
-                        deficit_kwh = deficit_before_supply - delivered_kwh
-                        events.append((catenary.key, delivered_kwh / a.charging_efficiency, delivered_kwh))
+                        deficit_kwh, grid_kwh = self.apply_catenary_energy(
+                            deficit_kwh, leg.carrier_kwh, travel_minutes, shared_catenary_power_kw, a.charging_efficiency
+                        )
+                        events.append((catenary.key, grid_kwh, grid_kwh, grid_kwh / max(travel_minutes / 60, 1 / 60)))
                     else:
                         deficit_kwh += leg.carrier_kwh
                     max_gap_kwh = max(max_gap_kwh, deficit_kwh)
-                    destination_stop = next(stop for stop in self.stops if stop.key == destination)
-                    if destination_stop.bemu_enabled and not destination_stop.is_catenary:
-                        events.append((destination_stop.key, deficit_kwh / a.charging_efficiency, deficit_kwh))
+                    if uses_catenary and destination == "denver":
+                        denver_dwell_minutes = next(stop.dwell_minutes for stop in self.stops if stop.key == "denver")
+                        deficit_kwh, grid_kwh = self.apply_catenary_energy(
+                            deficit_kwh, 0, denver_dwell_minutes, shared_catenary_power_kw, a.charging_efficiency
+                        )
+                        events.append((catenary.key, grid_kwh, grid_kwh, grid_kwh / max(denver_dwell_minutes / 60, 1 / 60)))
+                    destination_stop = next((stop for stop in self.stops if stop.key == destination), None)
+                    catenary_owns_denver_dwell = catenary.bemu_enabled and destination == "denver" and uses_catenary
+                    if destination_stop and destination_stop.bemu_enabled and not destination_stop.is_catenary and not catenary_owns_denver_dwell:
+                        events.append((destination_stop.key, deficit_kwh / a.charging_efficiency, deficit_kwh, None))
                         deficit_kwh = 0.0
         else:
             for nodes in self.circuits(a.service_pattern):
@@ -127,25 +173,33 @@ class DecisionModel:
                         if index == current:
                             break
                     max_gap_kwh = max(max_gap_kwh, carrier_kwh)
-                    events.append((nodes[current], carrier_kwh, carrier_units))
+                    events.append((nodes[current], carrier_kwh, carrier_units, None))
 
         active_stop_keys = {key for nodes in (self.energy_circuits(a.service_pattern) if technology.key == "bemu" else self.circuits(a.service_pattern)) for key in nodes}
         facilities: list[FacilityCapacity] = []
-        for stop in (item for item in self.stops if item.key in active_stop_keys and (item.bemu_enabled if technology.key == "bemu" else item.hydrogen_enabled)):
+        for stop in (item for item in self.stops
+                     if item.key in active_stop_keys
+                     and (item.bemu_enabled if technology.key == "bemu" else item.hydrogen_enabled)
+                     and (technology.key != "bemu" or item.is_catenary or any(event[0] == item.key for event in events))):
             site_events = [event for event in events if event[0] == stop.key]
+            modeled_dwell_minutes = self.catenary_interval_minutes() if stop.is_catenary else stop.dwell_minutes
             events_per_day = len(site_events) * self.daily_round_trips()
-            concurrency = max(1, ceil(events_per_day * stop.dwell_minutes / (a.service_span_hours * 60)))
+            concurrency = (
+                max(1, ceil(self.daily_round_trips() * self.catenary_connected_minutes() / (a.service_span_hours * 60)))
+                if stop.is_catenary else max(1, ceil(events_per_day * modeled_dwell_minutes / (a.service_span_hours * 60)))
+            )
             max_kwh = max((event[1] for event in site_events), default=0)
             max_units = max((event[2] for event in site_events), default=0)
             if technology.key == "bemu":
-                kw = max_kwh / max(stop.dwell_minutes / 60, 1 / 60) * concurrency
+                kw = (max((event[3] or 0 for event in site_events), default=0) * concurrency
+                      if stop.is_catenary else max_kwh / max(modeled_dwell_minutes / 60, 1 / 60) * concurrency)
                 maximum_power_kw = stop.maximum_power_mw * 1000 if stop.is_catenary else None
                 actual_peak_kw = min(kw, maximum_power_kw) if maximum_power_kw is not None else kw
                 billed_peak_kw = actual_peak_kw * (1 - min(1, max(0, stop.peak_demand_attenuation_fraction)))
                 capital = 0.0 if stop.is_catenary else actual_peak_kw * (a.grid_upgrade_usd_per_kw + a.charger_equipment_usd_per_kw) / 1e6
                 annual_energy_kwh = sum(event[1] for event in site_events) * self.daily_round_trips() * a.service_days_per_year
                 facilities.append(FacilityCapacity(
-                    stop.key, stop.name, stop.dwell_minutes, actual_peak_kw, "kW", actual_peak_kw, "kW", capital,
+                    stop.key, stop.name, modeled_dwell_minutes, actual_peak_kw, "kW", actual_peak_kw, "kW", capital,
                     annual_energy_kwh, stop.electricity_energy_usd_per_kwh, stop.electricity_demand_usd_per_kw_month,
                     billed_peak_kw, maximum_power_kw, stop.is_catenary,
                 ))
