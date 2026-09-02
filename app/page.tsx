@@ -398,25 +398,46 @@ function CostRangeChart({ ranges, bandCount }: { ranges: CostRange[]; bandCount:
   );
 }
 
+type FlowViewMode = "fit" | "detail" | "vertical";
+
+function compactFlowLabel(label: string) {
+  return label
+    .replaceAll("Fort Collins", "FC")
+    .replaceAll("Westminster", "WM")
+    .replaceAll("Denver", "DEN")
+    .replaceAll("Castle Pines", "CP")
+    .replaceAll("Colorado Springs", "COS");
+}
+
 function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
+  const [viewMode, setViewMode] = useState<FlowViewMode>("detail");
+  const [expanded, setExpanded] = useState(false);
   const usableKwh = outcome.usableBatteryKwh ?? 0;
   const steps = outcome.energyFlowSteps;
   const values = steps.flatMap((step) => [step.batteryBeforeKwh, step.batteryAfterKwh]);
   const domainMin = Math.min(0, ...values);
   const domainSpan = Math.max(usableKwh - domainMin, 1);
   const y = (value: number) => (usableKwh - value) / domainSpan * 100;
+  const x = (value: number) => (value - domainMin) / domainSpan * 100;
   const minimumKwh = Math.min(outcome.energyFlowStartKwh ?? usableKwh, ...values);
   const netKwh = (outcome.energyFlowEndKwh ?? 0) - (outcome.energyFlowStartKwh ?? 0);
+  const circuitNumber = (key: string) => Number(key.match(/^c(\d+)/)?.[1] ?? 0) + 1;
   return (
-    <section className="capacity-pane energy-flow-pane" aria-labelledby="energy-flow-heading">
+    <section className={`capacity-pane energy-flow-pane ${expanded ? "flow-expanded" : ""}`} aria-labelledby="energy-flow-heading" role={expanded ? "dialog" : undefined} aria-modal={expanded || undefined}>
       <div className="section-heading">
         <div>
           <p className="eyebrow">Battery operations diagnostic</p>
           <h2 id="energy-flow-heading">Representative BEMU train-day energy flow</h2>
         </div>
-        <span className={`flow-status ${outcome.energyFlowRepeatable ? "repeatable" : "not-repeatable"}`}>
-          {outcome.energyFlowRepeatable ? "Repeatable charging cycle" : "Energy not restored"}
-        </span>
+        <div className="flow-heading-actions">
+          <span className={`flow-status ${outcome.energyFlowRepeatable ? "repeatable" : "not-repeatable"}`}>
+            {outcome.energyFlowRepeatable ? "Repeatable charging cycle" : "Energy not restored"}
+          </span>
+          <button type="button" className="flow-expand-button" onClick={() => {
+            setViewMode(expanded ? "detail" : "fit");
+            setExpanded(!expanded);
+          }}>{expanded ? "Close presentation view" : "Expand chart"}</button>
+        </div>
       </div>
       <div className="flow-summary" aria-live="polite">
         <Metric label="Usable battery" value={`${number.format(usableKwh)} kWh`} note={`${number.format(outcome.installedBatteryKwh ?? 0)} kWh installed`} />
@@ -430,20 +451,54 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
         <span><i className="catenary" /> Existing catenary</span>
         <span><b /> Onboard battery after each event</span>
       </div>
-      <div className="flow-chart-scroll">
-        <div className="flow-chart" style={{ "--flow-columns": steps.length, minWidth: `${Math.max(760, steps.length * 68)}px` } as CSSProperties} role="img" aria-label={`Waterfall chart of ${steps.length} travel and charging events across one representative train-day`}>
+      <div className="flow-view-toolbar" aria-label="Energy-flow chart view">
+        <span>View</span>
+        {(["fit", "detail", "vertical"] as FlowViewMode[]).map((mode) => (
+          <button type="button" key={mode} className={viewMode === mode ? "active" : ""} aria-pressed={viewMode === mode} onClick={() => setViewMode(mode)}>
+            {mode === "fit" ? "Fit to width" : mode === "detail" ? "Detailed scroll" : "Vertical"}
+          </button>
+        ))}
+        {expanded && <button type="button" className="flow-print-button" onClick={() => window.print()}>Print / save PDF</button>}
+      </div>
+      {viewMode === "vertical" ? (
+        <div className="flow-vertical" role="img" aria-label={`Vertical waterfall chart of ${steps.length} events across one representative train-day`}>
+          <div className="flow-vertical-axis"><span>{number.format(domainMin)} kWh</span><span>Onboard battery</span><span>{number.format(usableKwh)} kWh</span></div>
+          {steps.map((step, index) => {
+            const circuit = circuitNumber(step.key);
+            const startsCircuit = index === 0 || circuitNumber(steps[index - 1].key) !== circuit;
+            const beforeX = x(step.batteryBeforeKwh);
+            const afterX = x(step.batteryAfterKwh);
+            const distanceAndTime = `${step.distanceMi === null ? "" : `${step.distanceMi.toFixed(0)} mi · `}${number.format(step.durationMinutes)} min`;
+            return (
+              <div className={`flow-vertical-step ${startsCircuit ? "circuit-start" : ""}`} key={step.key}>
+                {startsCircuit && <strong className="flow-vertical-circuit">Circuit {circuit}</strong>}
+                <div className="flow-vertical-label"><strong>{step.label}</strong><span>{distanceAndTime} · {step.detail}</span></div>
+                <div className="flow-vertical-track">
+                  <i className={`flow-vertical-change ${step.kind}`} style={{ left: `${Math.min(beforeX, afterX)}%`, width: `${Math.max(Math.abs(afterX - beforeX), 0.5)}%` }} />
+                  <b style={{ left: `${afterX}%` }} />
+                </div>
+                <div className="flow-vertical-value"><strong>{number.format(step.batteryAfterKwh)} kWh onboard</strong><span>{step.energyKwh >= 0 ? "+" : "−"}{number.format(Math.abs(step.energyKwh))} kWh{step.powerKw === null ? "" : ` · ${number.format(step.powerKw)} kW avg`}</span></div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      <div className={`flow-chart-scroll ${viewMode}`}>
+        <div className={`flow-chart ${viewMode}`} style={{ "--flow-columns": steps.length, minWidth: viewMode === "detail" ? `${Math.max(760, steps.length * 68)}px` : undefined } as CSSProperties} role="img" aria-label={`Waterfall chart of ${steps.length} travel and charging events across one representative train-day`}>
           <div className="flow-grid-line flow-grid-full"><span>{number.format(usableKwh)} kWh</span></div>
           <div className="flow-grid-line flow-grid-half"><span>{number.format((usableKwh + domainMin) / 2)} kWh</span></div>
           <div className="flow-grid-line flow-grid-zero" style={{ top: `${y(0) * 2.1}px` }}><span>0 kWh</span></div>
           <div className="flow-steps">
-            {steps.map((step) => {
+            {steps.map((step, index) => {
               const beforeY = y(step.batteryBeforeKwh);
               const afterY = y(step.batteryAfterKwh);
               const top = Math.min(beforeY, afterY);
               const height = Math.max(Math.abs(afterY - beforeY), 0.8);
               const distanceAndTime = `${step.distanceMi === null ? "" : `${step.distanceMi.toFixed(0)} mi · `}${number.format(step.durationMinutes)} min`;
+              const circuit = circuitNumber(step.key);
+              const startsCircuit = index === 0 || circuitNumber(steps[index - 1].key) !== circuit;
               return (
-                <div className="flow-step" key={step.key} aria-label={`${step.label}, ${distanceAndTime}: ${step.energyKwh >= 0 ? "adds" : "uses"} ${number.format(Math.abs(step.energyKwh))} kWh${step.powerKw === null ? "" : ` at ${number.format(step.powerKw)} average kW`}; battery ends at ${number.format(step.batteryAfterKwh)} kWh`}>
+                <div className={`flow-step ${startsCircuit ? "circuit-start" : ""}`} key={step.key} aria-label={`${step.label}, ${distanceAndTime}: ${step.energyKwh >= 0 ? "adds" : "uses"} ${number.format(Math.abs(step.energyKwh))} kWh${step.powerKw === null ? "" : ` at ${number.format(step.powerKw)} average kW`}; battery ends at ${number.format(step.batteryAfterKwh)} kWh`}>
                   <div className="flow-step-plot">
                     <i className={`flow-bar ${step.kind}`} style={{ top: `${top}%`, height: `${height}%` }} />
                     <i className="flow-level" style={{ top: `${afterY}%` }} />
@@ -452,14 +507,16 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
                       {step.powerKw !== null && <em>{number.format(step.powerKw)} kW avg</em>}
                     </strong>
                   </div>
-                  <span>{step.label}</span>
-                  <small>{distanceAndTime}<br />{step.detail}</small>
+                  <em className="flow-circuit-label">{startsCircuit ? `Circuit ${circuit}` : ""}</em>
+                  <span>{viewMode === "fit" ? compactFlowLabel(step.label) : step.label}</span>
+                  <small>{distanceAndTime}{(viewMode !== "fit" || step.kind === "catenary") && <><br />{step.detail}</>}</small>
                 </div>
               );
             })}
           </div>
         </div>
       </div>
+      )}
       {!outcome.energyFlowRepeatable && <p className="flow-warning">The enabled sources do not restore the energy used over a repeating train-day. The chart therefore starts with a full usable battery and shows the accumulating shortfall; this configuration requires another charging source or more delivered energy.</p>}
       <p className="range-footnote">Movement time follows the current speed assumption. Each blue catenary step combines travel under wire with the Denver dwell, supplies traction directly first, and uses only surplus power to charge the battery; its Δ label is the net battery change. Station steps use configured stopover time. Power labels are average grid-side kW for this train; site demand can be higher when trains overlap.</p>
     </section>

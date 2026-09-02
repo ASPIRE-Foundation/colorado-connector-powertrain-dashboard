@@ -61,7 +61,9 @@ Storage capital, losses, and energy arbitrage are intentionally excluded.
 A representative-train-day waterfall displays every off-wire traction draw, station charge,
 and integrated under-wire interval against onboard usable battery energy. It uses the same flow
 accounting as deterministic battery sizing and flags configurations that do not restore
-their energy over a repeating day.
+their energy over a repeating day. The chart has a full-window presentation view that fits
+the complete train-day without horizontal scrolling, compact circuit-grouped labels, a
+detailed scroll mode, a vertical mode, and landscape print/PDF styling for static summaries.
 
 Every numeric slider can also carry lower and upper estimates. Enabling a band adds two
 draggable endpoint handles around the darker base-value handle. A deterministic bounded

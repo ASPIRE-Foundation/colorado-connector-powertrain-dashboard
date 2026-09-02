@@ -380,6 +380,9 @@ forecasts or adopted FRPR scenarios.
 - Representative-train-day BEMU waterfall showing off-wire traction draws, station charges,
   integrated under-wire intervals, direct-to-traction and battery-bound catenary energy,
   route distance, derived connection time, average supplied kW, and onboard usable energy
+- Waterfall presentation view that spans the browser, fits the complete train-day without
+  horizontal scrolling, groups compact labels by circuit, and supports detailed-scroll,
+  vertical, and landscape print/PDF modes for static analysis
 - Plain-language model boundary and equation notes
 
 ## Explicit non-goals for the MVP
@@ -431,6 +434,9 @@ forecasts or adopted FRPR scenarios.
 20. When BEMU site optimization is enabled, every checked source is treated as eligible,
     unchecked sources are excluded, non-repeatable subsets are rejected, and the selected
     subset minimizes equivalent-annual lifecycle cost rather than infrastructure cost alone.
+21. Expanding the representative-day waterfall defaults to a fit-to-width presentation
+    view with no horizontal overflow; detailed and vertical alternatives remain available,
+    and printing the expanded view isolates the chart in landscape orientation.
 
 ## Recommended next increments
 
