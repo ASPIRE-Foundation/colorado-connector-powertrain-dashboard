@@ -299,6 +299,13 @@ summary > span:last-of-type { margin-left: auto; color: var(--muted); font-size:
 .preset-button strong { font-size: 0.72rem; }
 .preset-button span { color: var(--muted); font-size: 0.63rem; line-height: 1.4; }
 .stop-config-list { display: grid; gap: 10px; padding: 12px; border-top: 1px solid var(--line); background: white; }
+.site-optimization-toggle { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid #b8cbc3; border-radius: 9px; background: #eef5f2; }
+.site-optimization-toggle input { margin-top: 2px; accent-color: var(--pine); }
+.site-optimization-toggle span { display: grid; gap: 3px; }
+.site-optimization-toggle strong { font-size: 0.7rem; }
+.site-optimization-toggle small { color: var(--muted); font-size: 0.61rem; line-height: 1.4; }
+.site-optimization-result { padding: 9px 11px; border-left: 3px solid var(--pine); background: #f7faf8; color: var(--muted); font-size: 0.63rem; line-height: 1.45; }
+.site-optimization-result strong { color: var(--ink); }
 .stop-config { display: grid; gap: 13px; padding: 12px; border: 1px solid #e0e4e1; border-radius: 9px; background: #fbfcfa; }
 .stop-config.catenary-config { border-color: #9fb9ae; background: #f1f7f4; box-shadow: inset 3px 0 var(--pine); }
 .stop-config-heading { display: flex; justify-content: space-between; gap: 10px; }

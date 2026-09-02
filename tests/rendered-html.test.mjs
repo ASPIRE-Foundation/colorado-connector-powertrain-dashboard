@@ -33,6 +33,8 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Round trips \/ train \/ day/);
   assert.match(html, /three southbound and three northbound departures/);
   assert.match(html, /Charging, catenary &amp; fueling/);
+  assert.match(html, /Optimize BEMU site selection/);
+  assert.match(html, /Checked sources are required/);
   assert.match(html, /Castle Pines–Westminster catenary/);
   assert.match(html, /Maximum connection capacity/);
   assert.match(html, /Connected time is calculated/);

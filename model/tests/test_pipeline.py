@@ -125,6 +125,18 @@ class TestDecisionModel:
         disabled = DecisionModel(self.assumptions, disabled_stops).outcome(TECHNOLOGIES["bemu"])
         assert enabled.required_battery_kwh_per_car < disabled.required_battery_kwh_per_car
 
+    def test_site_optimizer_can_trade_larger_battery_for_fewer_facilities(self):
+        required = self.model.outcome(TECHNOLOGIES["bemu"])
+        optimized = self.model.optimized_bemu_outcome(TECHNOLOGIES["bemu"])
+        assert optimized.equivalent_annual_cost_musd < required.equivalent_annual_cost_musd
+        assert optimized.required_battery_kwh_per_car > required.required_battery_kwh_per_car
+        assert {site.stop_key for site in optimized.facility_capacities} == {"denver-westminster-catenary"}
+
+    def test_site_optimizer_never_uses_an_unchecked_candidate(self):
+        fort_collins_only = tuple(replace(stop, bemu_enabled=stop.key == "fort-collins") for stop in DEFAULT_STOPS)
+        optimized = DecisionModel(self.assumptions, fort_collins_only).optimized_bemu_outcome(TECHNOLOGIES["bemu"])
+        assert {site.stop_key for site in optimized.facility_capacities} == {"fort-collins"}
+
     def test_disabling_station_does_not_artificially_reduce_catenary_only_battery(self):
         catenary_and_denver = tuple(
             replace(stop, bemu_enabled=stop.is_catenary or stop.key == "denver")

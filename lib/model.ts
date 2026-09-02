@@ -144,6 +144,9 @@ export type Outcome = {
   energyFlowStartKwh: number | null;
   energyFlowEndKwh: number | null;
   energyFlowRepeatable: boolean | null;
+  bemuSiteOptimizationActive: boolean;
+  eligibleBemuStopKeys: ServiceStop["key"][];
+  selectedBemuStopKeys: ServiceStop["key"][];
 };
 
 export type AssumptionBand = { low: number; high: number };
@@ -549,7 +552,7 @@ function catenaryPeakDemandKw(route: Route, tech: Technology, a: Assumptions) {
 
 function annuityFactor(rate: number, years: number) { return rate === 0 ? years : (1 - (1 + rate) ** -years) / rate; }
 
-export function calculateOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[], includeEnergyFlow = true): Outcome[] {
+function calculateFixedSiteOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[], includeEnergyFlow = true): Outcome[] {
   const route = serviceRoute(a.servicePattern);
   const distanceMi = routeDistance(route);
   const annualRoundTrips = dailyRoundTrips(a) * a.serviceDaysPerYear;
@@ -622,6 +625,9 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
       energyFlowStartKwh: flow?.startKwh ?? null,
       energyFlowEndKwh: flow?.endKwh ?? null,
       energyFlowRepeatable: flow?.repeatable ?? null,
+      bemuSiteOptimizationActive: false,
+      eligibleBemuStopKeys: [],
+      selectedBemuStopKeys: tech.key === "bemu" ? sized.facilities.map((facility) => facility.stopKey) : [],
       costComponents: [
         { key: "base-vehicles", label: "Base vehicle capital", equivalentAnnualMUsd: baseVehicleCapital / af },
         { key: "battery", label: "Battery pack capital", equivalentAnnualMUsd: batteryCapital / af },
@@ -634,6 +640,43 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
       ].filter((component) => component.equivalentAnnualMUsd > 1e-9).sort((left, right) => right.equivalentAnnualMUsd - left.equivalentAnnualMUsd),
     };
   }).sort((left, right) => left.equivalentAnnualCostMUsd - right.equivalentAnnualCostMUsd);
+}
+
+function stopIsInService(stop: ServiceStop, pattern: ServicePattern) {
+  return pattern === "full" || stop.key === "fort-collins" || stop.key === "denver" || stop.isCatenary;
+}
+
+function optimizeBemuSites(technology: Technology, a: Assumptions, stops: ServiceStop[], includeEnergyFlow: boolean) {
+  const eligible = stops.filter((stop) => stop.bemuEnabled && stopIsInService(stop, a.servicePattern));
+  let best: { outcome: Outcome; stops: ServiceStop[] } | null = null;
+  for (let mask = 1; mask < 2 ** eligible.length; mask += 1) {
+    const selectedKeys = new Set(eligible.filter((_, index) => mask & (1 << index)).map((stop) => stop.key));
+    const candidateStops = stops.map((stop) => ({ ...stop, bemuEnabled: selectedKeys.has(stop.key) }));
+    let candidate = calculateFixedSiteOutcomes([technology], a, candidateStops, false)[0];
+    const hasConventionalSource = candidate.facilityCapacities.some((facility) => !facility.isExistingInfrastructure);
+    if (!hasConventionalSource) {
+      candidate = calculateFixedSiteOutcomes([technology], a, candidateStops, true)[0];
+      if (!candidate.energyFlowRepeatable) continue;
+    }
+    if (!best || candidate.equivalentAnnualCostMUsd < best.outcome.equivalentAnnualCostMUsd) best = { outcome: candidate, stops: candidateStops };
+  }
+  const selectedStops = best?.stops ?? stops;
+  const outcome = calculateFixedSiteOutcomes([technology], a, selectedStops, includeEnergyFlow)[0];
+  return {
+    ...outcome,
+    bemuSiteOptimizationActive: true,
+    eligibleBemuStopKeys: eligible.map((stop) => stop.key),
+    selectedBemuStopKeys: outcome.facilityCapacities.map((facility) => facility.stopKey),
+  };
+}
+
+export function calculateOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[], includeEnergyFlow = true, autoOptimizeBemuSites = false): Outcome[] {
+  if (!autoOptimizeBemuSites) return calculateFixedSiteOutcomes(technologies, a, stops, includeEnergyFlow);
+  const nonBemu = technologies.filter((technology) => technology.key !== "bemu");
+  const outcomes = calculateFixedSiteOutcomes(nonBemu, a, stops, includeEnergyFlow);
+  const bemu = technologies.find((technology) => technology.key === "bemu");
+  if (bemu) outcomes.push(optimizeBemuSites(bemu, a, stops, includeEnergyFlow));
+  return outcomes.sort((left, right) => left.equivalentAnnualCostMUsd - right.equivalentAnnualCostMUsd);
 }
 
 function readBandBase(id: string, assumptions: Assumptions, technologies: Technology[], stops: ServiceStop[]) {
@@ -660,8 +703,8 @@ function applyBandValues(assumptions: Assumptions, technologies: Technology[], s
   return { assumptions: nextAssumptions, technologies: nextTechnologies, stops: nextStops };
 }
 
-export function calculateCostRanges(technologies: Technology[], assumptions: Assumptions, stops: ServiceStop[], bands: AssumptionBands): CostRange[] {
-  const baseOutcomes = calculateOutcomes(technologies, assumptions, stops, false);
+export function calculateCostRanges(technologies: Technology[], assumptions: Assumptions, stops: ServiceStop[], bands: AssumptionBands, autoOptimizeBemuSites = false): CostRange[] {
+  const baseOutcomes = calculateOutcomes(technologies, assumptions, stops, false, autoOptimizeBemuSites);
   const activeEntries = Object.entries(bands);
   if (activeEntries.length === 0) return technologies.map((technology) => {
     const base = baseOutcomes.find((item) => item.technology.key === technology.key)!;
@@ -674,7 +717,7 @@ export function calculateCostRanges(technologies: Technology[], assumptions: Ass
     const highValues = Object.fromEntries(relevantEntries.map(([id, band]) => [id, band.high]));
     const evaluate = (values: Record<string, number>) => {
       const state = applyBandValues(assumptions, technologies, stops, values);
-      return calculateOutcomes(state.technologies, state.assumptions, state.stops, false).find((item) => item.technology.key === technology.key)!.equivalentAnnualCostMUsd;
+      return calculateOutcomes(state.technologies, state.assumptions, state.stops, false, autoOptimizeBemuSites && technology.key === "bemu").find((item) => item.technology.key === technology.key)!.equivalentAnnualCostMUsd;
     };
     const optimize = (goal: "min" | "max", start: Record<string, number>) => {
       const current = { ...start };

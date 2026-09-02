@@ -178,6 +178,27 @@ former fixed $14M and $30M allowances are removed. Catenary retains fixed and ro
 infrastructure inputs. These calculations are capacity-screening approximations, not
 utility, hydrogen-production, storage, or station engineering designs.
 
+### Optional BEMU site-selection optimization
+
+The dashboard provides two interpretations of checked BEMU sources:
+
+- **Required:** every checked source is used when the train reaches it.
+- **Optimize:** checked sources are eligible candidates. The model evaluates every subset
+  and selects the feasible configuration with the lowest equivalent-annual lifecycle cost.
+
+The subset objective includes battery capital and replacements, charging infrastructure,
+electricity energy and demand charges, and infrastructure maintenance through the same
+lifecycle-cost calculation used for the executive comparison. A candidate subset is
+feasible only if its charging sources restore a stable circuit-to-circuit energy state;
+the optimizer cannot choose a superficially cheap configuration with no replenishment.
+Unchecked sources are never considered. At the current maximum of five candidates this is
+at most 31 nonempty subsets, so exhaustive evaluation remains appropriate for interactive
+screening and is more transparent than a numerical solver.
+
+When uncertainty bands are active, site selection is re-optimized within each evaluated
+lower/base/upper assumption state. The displayed cost envelope therefore describes the
+best eligible infrastructure subset at each screened state, not one frozen site plan.
+
 ### Electricity tariff and peak attenuation
 
 BEMU electricity rates are specified independently for every enabled charging source.
@@ -331,6 +352,7 @@ modules.
 - Train and energy
 - Charging and fueling unit costs
 - Charging and fueling locations and the existing catenary source; catenary connection time is derived
+- Required-site versus cost-optimized BEMU candidate interpretation
 - Financial
 - Fuel, station-specific electricity tariffs, storage attenuation, and emissions
 - Technology capital and maintenance
@@ -406,6 +428,9 @@ forecasts or adopted FRPR scenarios.
 19. Disabling a charging location cannot reduce indicated battery capacity by implicitly
     resetting the battery at a circuit boundary; the train-day waterfall exposes the same
     energy accounting used by the battery-sizing calculation.
+20. When BEMU site optimization is enabled, every checked source is treated as eligible,
+    unchecked sources are excluded, non-repeatable subsets are rejected, and the selected
+    subset minimizes equivalent-annual lifecycle cost rather than infrastructure cost alone.
 
 ## Recommended next increments
 

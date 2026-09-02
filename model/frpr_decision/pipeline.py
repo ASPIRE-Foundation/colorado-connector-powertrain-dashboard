@@ -222,6 +222,65 @@ class DecisionModel:
             estimate = min(next_estimate, 10000)
         return estimate
 
+    def bemu_configuration_repeatable(self, technology: Technology, battery_kwh_per_car: float) -> bool:
+        """Check whether enabled sources restore a stable circuit-to-circuit energy state."""
+        a = self.assumptions
+        nodes = self.energy_circuits(a.service_pattern)[0]
+        catenary = next(stop for stop in self.stops if stop.is_catenary)
+        shared_catenary_power_kw = self.catenary_shared_power_kw(catenary)
+
+        def simulate(initial_deficit_kwh: float) -> float:
+            deficit_kwh = initial_deficit_kwh
+            for index, origin in enumerate(nodes):
+                destination = nodes[(index + 1) % len(nodes)]
+                leg_route = self.route_between(origin, destination)
+                leg = self.direction_energy(leg_route, technology, battery_kwh_per_car)
+                travel_minutes = leg_route.distance_mi / a.moving_speed_mph * 60
+                uses_catenary = catenary.bemu_enabled and self.uses_catenary_wire(origin, destination)
+                if uses_catenary:
+                    deficit_kwh, _ = self.apply_catenary_energy(
+                        deficit_kwh, leg.carrier_kwh, travel_minutes, shared_catenary_power_kw, a.charging_efficiency
+                    )
+                    if destination == "denver":
+                        denver_dwell_minutes = next(stop.dwell_minutes for stop in self.stops if stop.key == "denver")
+                        deficit_kwh, _ = self.apply_catenary_energy(
+                            deficit_kwh, 0, denver_dwell_minutes, shared_catenary_power_kw, a.charging_efficiency
+                        )
+                else:
+                    deficit_kwh += leg.carrier_kwh
+                destination_stop = next((stop for stop in self.stops if stop.key == destination), None)
+                catenary_owns_denver_dwell = catenary.bemu_enabled and destination == "denver" and uses_catenary
+                if destination_stop and destination_stop.bemu_enabled and not destination_stop.is_catenary and not catenary_owns_denver_dwell:
+                    deficit_kwh = 0.0
+            return deficit_kwh
+
+        deficit_kwh = 0.0
+        for _ in range(50):
+            next_deficit_kwh = simulate(deficit_kwh)
+            if abs(next_deficit_kwh - deficit_kwh) < 0.01:
+                return True
+            deficit_kwh = next_deficit_kwh
+        return False
+
+    def optimized_bemu_outcome(self, technology: Technology) -> TechnologyOutcome:
+        """Choose the minimum-EAC feasible subset of currently enabled BEMU candidates."""
+        eligible = tuple(stop for stop in self.stops if stop.bemu_enabled and (
+            self.assumptions.service_pattern == "full"
+            or stop.key in ("fort-collins", "denver")
+            or stop.is_catenary
+        ))
+        best: TechnologyOutcome | None = None
+        for mask in range(1, 2 ** len(eligible)):
+            selected = {stop.key for index, stop in enumerate(eligible) if mask & (1 << index)}
+            candidate_stops = tuple(replace(stop, bemu_enabled=stop.key in selected) for stop in self.stops)
+            candidate_model = DecisionModel(self.assumptions, candidate_stops)
+            candidate = candidate_model.outcome(technology)
+            if not candidate_model.bemu_configuration_repeatable(technology, candidate.required_battery_kwh_per_car or 0):
+                continue
+            if best is None or candidate.equivalent_annual_cost_musd < best.equivalent_annual_cost_musd:
+                best = candidate
+        return best if best is not None else self.outcome(technology)
+
     def catenary_peak_demand_kw(self, route: Route, technology: Technology) -> float:
         a = self.assumptions
         peak_per_train_kw = max(

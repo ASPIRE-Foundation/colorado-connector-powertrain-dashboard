@@ -472,14 +472,15 @@ export default function Home() {
   const [stops, setStops] = useState(DEFAULT_STOPS);
   const [bands, setBands] = useState<AssumptionBands>({});
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [autoOptimizeBemuSites, setAutoOptimizeBemuSites] = useState(false);
   const [expandedTechnologies, setExpandedTechnologies] = useState<Set<Technology["key"]>>(() => new Set());
   const outcomes = useMemo(
-    () => calculateOutcomes(technologies, assumptions, stops),
-    [technologies, assumptions, stops],
+    () => calculateOutcomes(technologies, assumptions, stops, true, autoOptimizeBemuSites),
+    [technologies, assumptions, stops, autoOptimizeBemuSites],
   );
   const costRanges = useMemo(
-    () => calculateCostRanges(technologies, assumptions, stops, bands),
-    [technologies, assumptions, stops, bands],
+    () => calculateCostRanges(technologies, assumptions, stops, bands, autoOptimizeBemuSites),
+    [technologies, assumptions, stops, bands, autoOptimizeBemuSites],
   );
   const leader = outcomes[0];
   const runnerUp = outcomes[1];
@@ -488,6 +489,7 @@ export default function Home() {
   const activeRoute = serviceRoute(assumptions.servicePattern);
   const fleetRoundTripsPerDay = assumptions.totalTrains * assumptions.roundTripsPerTrainPerDay;
   const maxCost = Math.max(...outcomes.map((item) => item.equivalentAnnualCostMUsd));
+  const selectedBemuSites = bemu.selectedBemuStopKeys.map((key) => stops.find((stop) => stop.key === key)?.name).filter(Boolean);
 
   const update = (key: NumericKey, value: number) => {
     setActivePreset(null);
@@ -531,6 +533,7 @@ export default function Home() {
     setStops(DEFAULT_STOPS);
     setBands({});
     setActivePreset(null);
+    setAutoOptimizeBemuSites(false);
   };
 
   return (
@@ -633,7 +636,7 @@ export default function Home() {
         <div className="capacity-columns">
           {[bemu, outcomes.find((item) => item.technology.key === "hydrogen")!].map((outcome) => (
             <article key={outcome.technology.key} className="capacity-technology">
-              <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{money(outcome.infrastructureCapitalMUsd)} modeled infrastructure</p></div></div>
+              <div className="capacity-title"><i style={{ background: outcome.technology.color }} /><div><h3>{outcome.technology.name}</h3><p>{outcome.bemuSiteOptimizationActive ? `Optimized subset · ${outcome.selectedBemuStopKeys.length} of ${outcome.eligibleBemuStopKeys.length} eligible sources` : `${money(outcome.infrastructureCapitalMUsd)} modeled infrastructure`}</p></div></div>
               {outcome.facilityCapacities.length ? outcome.facilityCapacities.map((facility) => (
                 <div className="capacity-site" key={facility.stopKey}>
                   <div><strong>{facility.stopName}</strong><span>{number.format(facility.dwellMinutes)}-minute {facility.isExistingInfrastructure ? "modeled connected interval" : "stopover"}</span></div>
@@ -789,11 +792,16 @@ export default function Home() {
           <details open>
             <summary>Charging, catenary & fueling <span>{assumptions.servicePattern === "starter" ? 3 : stops.length} locations</span></summary>
             <div className="stop-config-list">
+              <div className="site-optimization-toggle">
+                <input id="optimize-bemu-sites" aria-label="Optimize BEMU site selection" type="checkbox" checked={autoOptimizeBemuSites} onChange={(event) => setAutoOptimizeBemuSites(event.target.checked)} />
+                <span><strong>Optimize BEMU site selection</strong><small>{autoOptimizeBemuSites ? "Checked sources are eligible; the model chooses the lowest-lifecycle-cost feasible subset." : "Checked sources are required and used whenever the train reaches them."}</small></span>
+              </div>
+              {autoOptimizeBemuSites && <p className="site-optimization-result"><strong>Selected:</strong> {selectedBemuSites.length ? selectedBemuSites.join(", ") : "No feasible subset of the eligible sources"}</p>}
               {stops.filter((stop) => assumptions.servicePattern === "full" || stop.key === "fort-collins" || stop.key === "denver" || stop.isCatenary).map((stop) => (
                 <div className={`stop-config ${stop.isCatenary ? "catenary-config" : ""}`} key={stop.key}>
                   <div className="stop-config-heading"><strong>{stop.name}</strong><span>{stop.isCatenary ? "MP 57–90" : `MP ${stop.milepost}`}</span></div>
                   <div className="facility-toggles">
-                    <label><input type="checkbox" checked={stop.bemuEnabled} onChange={(event) => updateStop(stop.key, { bemuEnabled: event.target.checked })} /> {stop.isCatenary ? "Use for BEMU charging" : "Battery charging"}</label>
+                    <label><input type="checkbox" checked={stop.bemuEnabled} onChange={(event) => updateStop(stop.key, { bemuEnabled: event.target.checked })} /> {autoOptimizeBemuSites ? "Eligible BEMU source" : stop.isCatenary ? "Use for BEMU charging" : "Battery charging"}</label>
                     {!stop.isCatenary && <label><input type="checkbox" checked={stop.hydrogenEnabled} onChange={(event) => updateStop(stop.key, { hydrogenEnabled: event.target.checked })} /> Hydrogen fueling</label>}
                   </div>
                   {stop.isCatenary && <Slider label="Maximum connection capacity" value={stop.maximumPowerMw} min={0.05} max={15} step={0.05} digits={2} unit=" MW" onChange={(value) => updateStop(stop.key, { maximumPowerMw: value })} {...bandProps(`s.${stop.key}.maximumPowerMw`)} />}

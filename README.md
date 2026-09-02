@@ -46,6 +46,12 @@ replenishment demand, stopover time, scheduled arrivals, and concurrency, then p
 grid/charger capacity and hydrogen supply/dispensing capacity from editable unit costs.
 This replaces the former $14M and $30M blanket allowances.
 
+An optional BEMU site-selection mode changes checked charging sources from required sites
+to eligible candidates. Because the active route has at most five candidates, the dashboard
+evaluates every subset on slider change, rejects configurations that cannot restore a
+repeating train-day energy state, and selects the lowest equivalent-annual lifecycle cost.
+The chosen subset remains visible beside the capacity results.
+
 Electricity operating cost is separated into energy and monthly demand charges at every
 BEMU source. Each source has its own rates and storage-attenuation assumption. The existing
 catenary defaults to $0.01/kWh and no demand charge; the full-corridor catenary option keeps
