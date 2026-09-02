@@ -44,6 +44,12 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /fleet-wide round trips/);
   assert.match(html, /Battery specific mass/);
   assert.match(html, /Charging and fueling capacity/);
+  assert.match(html, /Representative BEMU train-day energy flow/);
+  assert.match(html, /Repeatable charging cycle/);
+  assert.match(html, /Traction and auxiliaries/);
+  assert.match(html, /Station charging/);
+  assert.match(html, /Existing catenary/);
+  assert.match(html, /Toggle a charging source/);
   assert.match(html, /Deterministic battery sizing/);
   assert.match(html, /Battery pack \/ kWh/);
   assert.match(html, /Battery pack capital/);

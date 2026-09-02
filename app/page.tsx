@@ -399,6 +399,70 @@ function CostRangeChart({ ranges, bandCount }: { ranges: CostRange[]; bandCount:
   );
 }
 
+function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
+  const usableKwh = outcome.usableBatteryKwh ?? 0;
+  const steps = outcome.energyFlowSteps;
+  const values = steps.flatMap((step) => [step.batteryBeforeKwh, step.batteryAfterKwh]);
+  const domainMin = Math.min(0, ...values);
+  const domainSpan = Math.max(usableKwh - domainMin, 1);
+  const y = (value: number) => (usableKwh - value) / domainSpan * 100;
+  const minimumKwh = Math.min(outcome.energyFlowStartKwh ?? usableKwh, ...values);
+  const netKwh = (outcome.energyFlowEndKwh ?? 0) - (outcome.energyFlowStartKwh ?? 0);
+  return (
+    <section className="capacity-pane energy-flow-pane" aria-labelledby="energy-flow-heading">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Battery operations diagnostic</p>
+          <h2 id="energy-flow-heading">Representative BEMU train-day energy flow</h2>
+        </div>
+        <span className={`flow-status ${outcome.energyFlowRepeatable ? "repeatable" : "not-repeatable"}`}>
+          {outcome.energyFlowRepeatable ? "Repeatable charging cycle" : "Energy not restored"}
+        </span>
+      </div>
+      <div className="flow-summary" aria-live="polite">
+        <Metric label="Usable battery" value={`${number.format(usableKwh)} kWh`} note={`${number.format(outcome.installedBatteryKwh ?? 0)} kWh installed`} />
+        <Metric label="Day starts" value={`${number.format(outcome.energyFlowStartKwh ?? 0)} kWh`} note="Steady-state onboard energy" />
+        <Metric label="Minimum onboard" value={`${number.format(minimumKwh)} kWh`} note="Across the representative day" />
+        <Metric label="Day ends" value={`${number.format(outcome.energyFlowEndKwh ?? 0)} kWh`} note={`${netKwh >= 0 ? "+" : ""}${number.format(netKwh)} kWh versus start`} />
+      </div>
+      <div className="flow-legend" aria-label="Energy-flow legend">
+        <span><i className="travel" /> Traction and auxiliaries</span>
+        <span><i className="station" /> Station charging</span>
+        <span><i className="catenary" /> Existing catenary</span>
+        <span><b /> Onboard battery after each event</span>
+      </div>
+      <div className="flow-chart-scroll">
+        <div className="flow-chart" style={{ "--flow-columns": steps.length, minWidth: `${Math.max(760, steps.length * 68)}px` } as CSSProperties} role="img" aria-label={`Waterfall chart of ${steps.length} travel and charging events across one representative train-day`}>
+          <div className="flow-grid-line flow-grid-full"><span>{number.format(usableKwh)} kWh</span></div>
+          <div className="flow-grid-line flow-grid-half"><span>{number.format((usableKwh + domainMin) / 2)} kWh</span></div>
+          <div className="flow-grid-line flow-grid-zero" style={{ top: `${y(0) * 2.1}px` }}><span>0 kWh</span></div>
+          <div className="flow-steps">
+            {steps.map((step) => {
+              const beforeY = y(step.batteryBeforeKwh);
+              const afterY = y(step.batteryAfterKwh);
+              const top = Math.min(beforeY, afterY);
+              const height = Math.max(Math.abs(afterY - beforeY), 0.8);
+              return (
+                <div className="flow-step" key={step.key} aria-label={`${step.label}: ${step.energyKwh >= 0 ? "adds" : "uses"} ${number.format(Math.abs(step.energyKwh))} kWh; battery ends at ${number.format(step.batteryAfterKwh)} kWh`}>
+                  <div className="flow-step-plot">
+                    <i className={`flow-bar ${step.kind}`} style={{ top: `${top}%`, height: `${height}%` }} />
+                    <i className="flow-level" style={{ top: `${afterY}%` }} />
+                    <strong style={{ top: `${Math.max(1, Math.min(91, top + height / 2))}%` }}>{step.energyKwh >= 0 ? "+" : "−"}{number.format(Math.abs(step.energyKwh))}</strong>
+                  </div>
+                  <span>{step.label}</span>
+                  <small>{step.detail}</small>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {!outcome.energyFlowRepeatable && <p className="flow-warning">The enabled sources do not restore the energy used over a repeating train-day. The chart therefore starts with a full usable battery and shows the accumulating shortfall; this configuration requires another charging source or more delivered energy.</p>}
+      <p className="range-footnote">Bars step downward for train energy use and upward for delivered charging energy. The horizontal marker shows onboard usable energy after each event. Toggle a charging source to see exactly which unsupported interval controls battery size.</p>
+    </section>
+  );
+}
+
 export default function Home() {
   const [assumptions, setAssumptions] = useState(DEFAULT_ASSUMPTIONS);
   const [technologies, setTechnologies] = useState(DEFAULT_TECHNOLOGIES);
@@ -579,6 +643,8 @@ export default function Home() {
         </div>
         <p className="range-footnote">Capacity is a screening estimate based on energy replenished since the preceding enabled facility, stopover duration, scheduled arrivals, and modeled concurrency.</p>
       </section>
+
+      <EnergyFlowChart outcome={bemu} />
 
       <section className="capacity-pane" aria-labelledby="electricity-heading">
         <div className="section-heading">

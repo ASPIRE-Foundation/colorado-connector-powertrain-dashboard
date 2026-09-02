@@ -98,6 +98,16 @@ export type CostComponent = {
   equivalentAnnualMUsd: number;
 };
 
+export type EnergyFlowStep = {
+  key: string;
+  label: string;
+  detail: string;
+  kind: "travel" | "station" | "catenary";
+  energyKwh: number;
+  batteryBeforeKwh: number;
+  batteryAfterKwh: number;
+};
+
 export type Outcome = {
   technology: Technology;
   fleetSize: number;
@@ -127,6 +137,10 @@ export type Outcome = {
   billedPeakDemandKw: number;
   facilityCapacities: FacilityCapacity[];
   costComponents: CostComponent[];
+  energyFlowSteps: EnergyFlowStep[];
+  energyFlowStartKwh: number | null;
+  energyFlowEndKwh: number | null;
+  energyFlowRepeatable: boolean | null;
 };
 
 export type AssumptionBand = { low: number; high: number };
@@ -253,8 +267,10 @@ function facilitySizing(tech: Technology, a: Assumptions, stops: ServiceStop[], 
         const stop = stops.find((item) => item.key === key);
         return Boolean(stop?.bemuEnabled && !stop.isCatenary);
       });
-      const nodes = firstUnlimited > 0
-        ? [...sourceNodes.slice(firstUnlimited), ...sourceNodes.slice(0, firstUnlimited)]
+      const catenaryStart = catenary.bemuEnabled ? sourceNodes.findIndex((key) => key === "denver") : -1;
+      const startIndex = firstUnlimited >= 0 ? firstUnlimited : catenaryStart >= 0 ? catenaryStart : 0;
+      const nodes = startIndex > 0
+        ? [...sourceNodes.slice(startIndex), ...sourceNodes.slice(0, startIndex)]
         : sourceNodes;
       const catenaryEventsPerDay = 2 * dailyRoundTrips(a);
       const catenaryConcurrency = Math.max(1, Math.ceil(catenaryEventsPerDay * catenary.dwellMinutes / (a.serviceSpanHours * 60)));
@@ -348,6 +364,94 @@ function requiredFleet(a: Assumptions, stops: ServiceStop[]) {
   return needed(serviceCircuitDefinitions(a.servicePattern)[0]);
 }
 
+function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], batteryKwhPerCar: number, usableBatteryKwh: number) {
+  const nodes = energyCircuitDefinitions(a.servicePattern)[0];
+  const catenary = stops.find((stop) => stop.isCatenary)!;
+  const catenaryEventsPerDay = 2 * dailyRoundTrips(a);
+  const catenaryConcurrency = Math.max(1, Math.ceil(catenaryEventsPerDay * catenary.dwellMinutes / (a.serviceSpanHours * 60)));
+  const catenaryBatteryKwhAvailable = catenary.maximumPowerMw * 1000 * (catenary.dwellMinutes / 60) / catenaryConcurrency * a.chargingEfficiency;
+  const shortName = (key: ServiceStop["key"]) => ({
+    "fort-collins": "Fort Collins",
+    "denver-westminster-catenary": "Westminster",
+    denver: "Denver",
+    "colorado-springs": "Colorado Springs",
+    pueblo: "Pueblo",
+  })[key];
+  const simulateDay = (initialDeficitKwh: number, capture: boolean) => {
+    let deficitKwh = initialDeficitKwh;
+    const steps: EnergyFlowStep[] = [];
+    for (let circuit = 0; circuit < a.roundTripsPerTrainPerDay; circuit += 1) {
+      nodes.forEach((from, index) => {
+        const to = nodes[(index + 1) % nodes.length];
+        const leg = directionEnergy(routeBetween(from, to), tech, a, batteryKwhPerCar);
+        const beforeTravel = usableBatteryKwh - deficitKwh;
+        deficitKwh += leg.carrierKwh;
+        if (capture) steps.push({
+          key: `c${circuit}-leg${index}`,
+          label: `${shortName(from)} → ${shortName(to)}`,
+          detail: `Circuit ${circuit + 1} traction`,
+          kind: "travel",
+          energyKwh: -leg.carrierKwh,
+          batteryBeforeKwh: beforeTravel,
+          batteryAfterKwh: usableBatteryKwh - deficitKwh,
+        });
+        const usesCatenary = catenary.bemuEnabled && ((from === catenary.key && to === "denver") || (from === "denver" && to === catenary.key));
+        if (usesCatenary) {
+          const deliveredKwh = Math.min(deficitKwh, catenaryBatteryKwhAvailable);
+          const beforeCharge = usableBatteryKwh - deficitKwh;
+          deficitKwh -= deliveredKwh;
+          if (capture) steps.push({
+            key: `c${circuit}-cat${index}`,
+            label: "Existing catenary",
+            detail: `${shortName(from)} → ${shortName(to)} connection`,
+            kind: "catenary",
+            energyKwh: deliveredKwh,
+            batteryBeforeKwh: beforeCharge,
+            batteryAfterKwh: usableBatteryKwh - deficitKwh,
+          });
+        }
+        const destination = stops.find((stop) => stop.key === to);
+        if (destination?.bemuEnabled && !destination.isCatenary) {
+          const deliveredKwh = deficitKwh;
+          const beforeCharge = usableBatteryKwh - deficitKwh;
+          deficitKwh = 0;
+          if (capture) steps.push({
+            key: `c${circuit}-station${index}`,
+            label: `${destination.name} charge`,
+            detail: `${destination.dwellMinutes}-minute stopover`,
+            kind: "station",
+            energyKwh: deliveredKwh,
+            batteryBeforeKwh: beforeCharge,
+            batteryAfterKwh: usableBatteryKwh,
+          });
+        }
+      });
+    }
+    return { endDeficitKwh: deficitKwh, steps };
+  };
+
+  let steadyDeficitKwh = 0;
+  let repeatable = false;
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    const nextDeficitKwh = simulateDay(steadyDeficitKwh, false).endDeficitKwh;
+    if (Math.abs(nextDeficitKwh - steadyDeficitKwh) < 0.01) {
+      repeatable = true;
+      steadyDeficitKwh = nextDeficitKwh;
+      break;
+    }
+    steadyDeficitKwh = nextDeficitKwh;
+    if (steadyDeficitKwh > Math.max(usableBatteryKwh * 20, 1e6)) break;
+  }
+  if (!repeatable) steadyDeficitKwh = 0;
+  const representative = simulateDay(steadyDeficitKwh, true);
+  return {
+    steps: representative.steps,
+    startKwh: usableBatteryKwh - steadyDeficitKwh,
+    endKwh: usableBatteryKwh - representative.endDeficitKwh,
+    repeatable,
+  };
+}
+
 function catenaryPeakDemandKw(route: Route, tech: Technology, a: Assumptions) {
   const peakPerTrainKw = Math.max(...route.segments.map((item) => {
     const segmentRoute: Route = { ...route, segments: [item] };
@@ -361,7 +465,7 @@ function catenaryPeakDemandKw(route: Route, tech: Technology, a: Assumptions) {
 
 function annuityFactor(rate: number, years: number) { return rate === 0 ? years : (1 - (1 + rate) ** -years) / rate; }
 
-export function calculateOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[]): Outcome[] {
+export function calculateOutcomes(technologies: Technology[], a: Assumptions, stops: ServiceStop[], includeEnergyFlow = true): Outcome[] {
   const route = serviceRoute(a.servicePattern);
   const distanceMi = routeDistance(route);
   const annualRoundTrips = dailyRoundTrips(a) * a.serviceDaysPerYear;
@@ -412,6 +516,7 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
     const eac = npv / af;
     const usableBattery = installedBattery * (1 - a.batteryReserveFraction);
     const requiredInstalled = requiredPerCar === null ? null : requiredPerCar * a.cars;
+    const flow = tech.key === "bemu" && includeEnergyFlow ? bemuEnergyFlow(tech, a, stops, batteryKwhPerCar, usableBattery) : null;
     return {
       technology: tech, fleetSize: a.totalTrains, requiredFleetSize: required, fleetSufficient: a.totalTrains >= required,
       initialCapitalMUsd: initialCapital, infrastructureCapitalMUsd: infrastructure, annualEnergyMUsd: energyCost,
@@ -429,6 +534,10 @@ export function calculateOutcomes(technologies: Technology[], a: Assumptions, st
       indicativeChargerMw: tech.key === "bemu" ? sized.facilities.reduce((sum, facility) => sum + facility.peakRate, 0) / 1000 : null,
       unattenuatedPeakDemandKw, billedPeakDemandKw,
       facilityCapacities: sized.facilities,
+      energyFlowSteps: flow?.steps ?? [],
+      energyFlowStartKwh: flow?.startKwh ?? null,
+      energyFlowEndKwh: flow?.endKwh ?? null,
+      energyFlowRepeatable: flow?.repeatable ?? null,
       costComponents: [
         { key: "base-vehicles", label: "Base vehicle capital", equivalentAnnualMUsd: baseVehicleCapital / af },
         { key: "battery", label: "Battery pack capital", equivalentAnnualMUsd: batteryCapital / af },
@@ -468,7 +577,7 @@ function applyBandValues(assumptions: Assumptions, technologies: Technology[], s
 }
 
 export function calculateCostRanges(technologies: Technology[], assumptions: Assumptions, stops: ServiceStop[], bands: AssumptionBands): CostRange[] {
-  const baseOutcomes = calculateOutcomes(technologies, assumptions, stops);
+  const baseOutcomes = calculateOutcomes(technologies, assumptions, stops, false);
   const activeEntries = Object.entries(bands);
   if (activeEntries.length === 0) return technologies.map((technology) => {
     const base = baseOutcomes.find((item) => item.technology.key === technology.key)!;
@@ -481,7 +590,7 @@ export function calculateCostRanges(technologies: Technology[], assumptions: Ass
     const highValues = Object.fromEntries(relevantEntries.map(([id, band]) => [id, band.high]));
     const evaluate = (values: Record<string, number>) => {
       const state = applyBandValues(assumptions, technologies, stops, values);
-      return calculateOutcomes(state.technologies, state.assumptions, state.stops).find((item) => item.technology.key === technology.key)!.equivalentAnnualCostMUsd;
+      return calculateOutcomes(state.technologies, state.assumptions, state.stops, false).find((item) => item.technology.key === technology.key)!.equivalentAnnualCostMUsd;
     };
     const optimize = (goal: "min" | "max", start: Record<string, number>) => {
       const current = { ...start };

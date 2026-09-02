@@ -113,6 +113,19 @@ class TestDecisionModel:
         disabled = DecisionModel(self.assumptions, disabled_stops).outcome(TECHNOLOGIES["bemu"])
         assert enabled.required_battery_kwh_per_car < disabled.required_battery_kwh_per_car
 
+    def test_disabling_station_does_not_artificially_reduce_catenary_only_battery(self):
+        catenary_and_denver = tuple(
+            replace(stop, bemu_enabled=stop.is_catenary or stop.key == "denver")
+            for stop in DEFAULT_STOPS
+        )
+        catenary_only = tuple(
+            replace(stop, bemu_enabled=stop.is_catenary)
+            for stop in DEFAULT_STOPS
+        )
+        with_denver = DecisionModel(self.assumptions, catenary_and_denver).outcome(TECHNOLOGIES["bemu"])
+        without_denver = DecisionModel(self.assumptions, catenary_only).outcome(TECHNOLOGIES["bemu"])
+        assert without_denver.required_battery_kwh_per_car >= with_denver.required_battery_kwh_per_car
+
     def test_catenary_power_limit_propagates_to_battery_size(self):
         low_power_stops = tuple(replace(stop, maximum_power_mw=0.05) if stop.is_catenary else stop for stop in DEFAULT_STOPS)
         low_power = DecisionModel(self.assumptions, low_power_stops).outcome(TECHNOLOGIES["bemu"])

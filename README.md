@@ -28,6 +28,8 @@ Battery kWh per car is calculated rather than entered. The model iterates batter
 capacity, battery mass, segment energy, the longest interval between enabled charging
 sites, and reserve until installed capacity converges. The calculated pack is then priced
 with a separate editable $/kWh assumption; the vehicle-per-car input excludes the battery.
+Facility intervals are evaluated cyclically, so disabling a terminal charger cannot grant
+an implicit full battery at the start of the next circuit.
 
 Illustrative base vehicle costs are normalized across all four powertrains: $5M per
 train plus $0.75M per car before batteries and infrastructure. Preset uncertainty bands
@@ -47,6 +49,11 @@ BEMU source. Each source has its own rates and storage-attenuation assumption. T
 catenary defaults to $0.01/kWh and no demand charge; the full-corridor catenary option keeps
 its own technology-level tariff. Attenuation reduces billed kW without reducing kWh.
 Storage capital, losses, and energy arbitrage are intentionally excluded.
+
+A representative-train-day waterfall displays every traction draw, station charge, and
+existing-catenary delivery against onboard usable battery energy. It uses the same flow
+accounting as deterministic battery sizing and flags configurations that do not restore
+their energy over a repeating day.
 
 Every numeric slider can also carry lower and upper estimates. Enabling a band adds two
 draggable endpoint handles around the darker base-value handle. A deterministic bounded

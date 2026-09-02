@@ -277,6 +277,13 @@ capacity, longest-interval energy, battery mass, battery pack capital, and charg
 infrastructure capital. Enabled facility locations affect onboard capacity; stopover
 duration affects the charging power needed to replenish it.
 
+The facility-interval calculation is cyclic. When no conventional station charger is
+enabled, the model begins immediately after an existing-catenary energy event and carries
+the battery deficit through the complete circuit before returning to that same event. It
+must not silently restore the battery at the nominal service origin. This prevents disabling
+a charger from appearing to reduce required capacity because of an unmodeled circuit-boundary
+recharge.
+
 Battery pack cost is a separate `battery_cost_usd_per_kwh` assumption. For BEMU, the
 vehicle-per-car input is explicitly the non-battery vehicle cost, preventing battery
 capital from being embedded in both terms.
@@ -327,6 +334,8 @@ forecasts or adopted FRPR scenarios.
 - Click-to-expand, magnitude-sorted equivalent-annual cost components for each powertrain
 - Energy composition and BEMU feasibility summary
 - Per-site BEMU kW and hydrogen kg/day / kg/hour capacity
+- Representative-train-day BEMU waterfall showing every traction draw, station charge,
+  catenary delivery, and the resulting onboard usable energy
 - Plain-language model boundary and equation notes
 
 ## Explicit non-goals for the MVP
@@ -371,6 +380,9 @@ forecasts or adopted FRPR scenarios.
 18. The optional Denver–Westminster catenary supplies no more than its configured MW-by-time
     limit, reports actual rather than maximum draw, and defaults to $0.01/kWh with no demand
     charge or new infrastructure capital.
+19. Disabling a charging location cannot reduce indicated battery capacity by implicitly
+    resetting the battery at a circuit boundary; the train-day waterfall exposes the same
+    energy accounting used by the battery-sizing calculation.
 
 ## Recommended next increments
 

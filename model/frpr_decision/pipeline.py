@@ -82,8 +82,10 @@ class DecisionModel:
             catenary = next(stop for stop in self.stops if stop.is_catenary)
             for source_nodes in self.energy_circuits(a.service_pattern):
                 first_unlimited = next((index for index, key in enumerate(source_nodes)
-                                        if (stop := next(item for item in self.stops if item.key == key)).bemu_enabled and not stop.is_catenary), 0)
-                nodes = source_nodes[first_unlimited:] + source_nodes[:first_unlimited]
+                                        if (stop := next(item for item in self.stops if item.key == key)).bemu_enabled and not stop.is_catenary), -1)
+                catenary_start = source_nodes.index("denver") if catenary.bemu_enabled else -1
+                start_index = first_unlimited if first_unlimited >= 0 else catenary_start if catenary_start >= 0 else 0
+                nodes = source_nodes[start_index:] + source_nodes[:start_index]
                 catenary_events_per_day = 2 * self.daily_round_trips()
                 catenary_concurrency = max(1, ceil(catenary_events_per_day * catenary.dwell_minutes / (a.service_span_hours * 60)))
                 catenary_battery_kwh_available = catenary.maximum_power_mw * 1000 * catenary.dwell_minutes / 60 / catenary_concurrency * a.charging_efficiency
