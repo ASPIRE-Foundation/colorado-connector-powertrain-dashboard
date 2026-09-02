@@ -335,7 +335,7 @@ forecasts or adopted FRPR scenarios.
 - Energy composition and BEMU feasibility summary
 - Per-site BEMU kW and hydrogen kg/day / kg/hour capacity
 - Representative-train-day BEMU waterfall showing every traction draw, station charge,
-  catenary delivery, and the resulting onboard usable energy
+  catenary delivery, average charging kW, and the resulting onboard usable energy
 - Plain-language model boundary and equation notes
 
 ## Explicit non-goals for the MVP

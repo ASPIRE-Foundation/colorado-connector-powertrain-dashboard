@@ -49,6 +49,7 @@ test("renders the FRPR decision model", async () => {
   assert.match(html, /Traction and auxiliaries/);
   assert.match(html, /Station charging/);
   assert.match(html, /Existing catenary/);
+  assert.match(html, /kW avg/);
   assert.match(html, /Toggle a charging source/);
   assert.match(html, /Deterministic battery sizing/);
   assert.match(html, /Battery pack \/ kWh/);

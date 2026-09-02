@@ -104,6 +104,7 @@ export type EnergyFlowStep = {
   detail: string;
   kind: "travel" | "station" | "catenary";
   energyKwh: number;
+  powerKw: number | null;
   batteryBeforeKwh: number;
   batteryAfterKwh: number;
 };
@@ -392,6 +393,7 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
           detail: `Circuit ${circuit + 1} traction`,
           kind: "travel",
           energyKwh: -leg.carrierKwh,
+          powerKw: null,
           batteryBeforeKwh: beforeTravel,
           batteryAfterKwh: usableBatteryKwh - deficitKwh,
         });
@@ -406,6 +408,7 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
             detail: `${shortName(from)} → ${shortName(to)} connection`,
             kind: "catenary",
             energyKwh: deliveredKwh,
+            powerKw: deliveredKwh / a.chargingEfficiency / Math.max(catenary.dwellMinutes / 60, 1 / 60),
             batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh - deficitKwh,
           });
@@ -421,6 +424,7 @@ function bemuEnergyFlow(tech: Technology, a: Assumptions, stops: ServiceStop[], 
             detail: `${destination.dwellMinutes}-minute stopover`,
             kind: "station",
             energyKwh: deliveredKwh,
+            powerKw: deliveredKwh / a.chargingEfficiency / Math.max(destination.dwellMinutes / 60, 1 / 60),
             batteryBeforeKwh: beforeCharge,
             batteryAfterKwh: usableBatteryKwh,
           });
