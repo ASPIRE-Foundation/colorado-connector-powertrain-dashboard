@@ -424,13 +424,15 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
   const [expanded, setExpanded] = useState(false);
   const usableKwh = outcome.usableBatteryKwh ?? 0;
   const steps = outcome.energyFlowSteps;
-  const values = steps.flatMap((step) => [step.batteryBeforeKwh, step.batteryAfterKwh]);
+  const cleanKwh = (value: number) => Math.abs(value) < 0.01 ? 0 : value;
+  const values = steps.flatMap((step) => [cleanKwh(step.batteryBeforeKwh), cleanKwh(step.batteryAfterKwh)]);
   const domainMin = Math.min(0, ...values);
   const domainSpan = Math.max(usableKwh - domainMin, 1);
-  const y = (value: number) => (usableKwh - value) / domainSpan * 100;
-  const x = (value: number) => (value - domainMin) / domainSpan * 100;
-  const minimumKwh = Math.min(outcome.energyFlowStartKwh ?? usableKwh, ...values);
-  const netKwh = (outcome.energyFlowEndKwh ?? 0) - (outcome.energyFlowStartKwh ?? 0);
+  const y = (value: number) => (usableKwh - cleanKwh(value)) / domainSpan * 100;
+  const x = (value: number) => (cleanKwh(value) - domainMin) / domainSpan * 100;
+  const plotHeightPx = expanded ? 225 : 210;
+  const minimumKwh = cleanKwh(Math.min(outcome.energyFlowStartKwh ?? usableKwh, ...values));
+  const netKwh = cleanKwh((outcome.energyFlowEndKwh ?? 0) - (outcome.energyFlowStartKwh ?? 0));
   const circuitNumber = (key: string) => Number(key.match(/^c(\d+)/)?.[1] ?? 0) + 1;
   return (
     <section className={`capacity-pane energy-flow-pane ${expanded ? "flow-expanded" : ""}`} aria-labelledby="energy-flow-heading" role={expanded ? "dialog" : undefined} aria-modal={expanded || undefined}>
@@ -496,8 +498,8 @@ function EnergyFlowChart({ outcome }: { outcome: Outcome }) {
       <div className={`flow-chart-scroll ${viewMode}`}>
         <div className={`flow-chart ${viewMode}`} style={{ "--flow-columns": steps.length, minWidth: viewMode === "detail" ? `${Math.max(760, steps.length * 68)}px` : undefined } as CSSProperties} role="img" aria-label={`Waterfall chart of ${steps.length} travel and charging events across one representative train-day`}>
           <div className="flow-grid-line flow-grid-full"><span>{number.format(usableKwh)} kWh</span></div>
-          <div className="flow-grid-line flow-grid-half"><span>{number.format((usableKwh + domainMin) / 2)} kWh</span></div>
-          <div className="flow-grid-line flow-grid-zero" style={{ top: `${y(0) * 2.1}px` }}><span>0 kWh</span></div>
+          <div className="flow-grid-line flow-grid-half" style={{ top: `${plotHeightPx / 2}px` }}><span>{number.format((usableKwh + domainMin) / 2)} kWh</span></div>
+          <div className="flow-grid-line flow-grid-zero" style={{ top: `${y(0) / 100 * plotHeightPx}px` }}><span>0 kWh</span></div>
           <div className="flow-steps">
             {steps.map((step, index) => {
               const beforeY = y(step.batteryBeforeKwh);
